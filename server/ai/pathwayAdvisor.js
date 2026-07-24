@@ -38,6 +38,7 @@ import {
   DOMAINS,
   AFTER_CLASS_10,
 } from '../data/indiaPathways.js'
+import { callLLM as sharedCallLLM, getAiStatus } from './llmClient.js'
 
 // ── Supabase (read-only college lookup) — lazy, resilient ────────────────────
 let _sb = null
@@ -164,38 +165,10 @@ async function findCollegesForCourse(course, formData, allColleges) {
 }
 
 // ── LLM caller (lazy env read — same reasoning as Orchestrator fix) ──────────
-async function callLLM(prompt, { json = true, maxTokens = 2000, modelOverride = null, temperature = 0.15 } = {}) {
-  const groqKey = process.env.GROQ_API_KEY
-  const openaiKey = process.env.OPENAI_API_KEY
-
-  let url, headers, model
-  if (groqKey) {
-    url = 'https://api.groq.com/openai/v1/chat/completions'
-    headers = { Authorization: `Bearer ${groqKey}`, 'Content-Type': 'application/json' }
-    model = modelOverride || process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
-  } else if (openaiKey) {
-    url = 'https://api.openai.com/v1/chat/completions'
-    headers = { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' }
-    model = 'gpt-4o-mini'
-  } else {
-    throw new Error('NO_API_KEY')
-  }
-
-  const body = {
-    model,
-    messages: [{ role: 'user', content: prompt }],
-    temperature, // low temp = deterministic, less drift
-    max_tokens: maxTokens,
-  }
-  if (json) body.response_format = { type: 'json_object' }
-
-  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) })
-  if (!res.ok) throw new Error(`AI API error (${res.status}): ${await res.text()}`)
-  const data = await res.json()
-  const text = data.choices[0].message.content
-  if (!json) return text
-  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-  return JSON.parse(cleaned)
+// Thin wrapper over the shared LLM client so this module benefits from the same
+// token circuit breaker, provider fallback and env handling as everything else.
+async function callLLM(prompt, { json = true, maxTokens = 1200, modelOverride = null, temperature = 0.15 } = {}) {
+  return sharedCallLLM(prompt, { json, maxTokens, modelOverride, temperature })
 }
 
 // ── STAGE 1: Retrieval — build the candidate list (deterministic) ────────────
@@ -430,6 +403,7 @@ Respond ONLY with JSON:
       'These options are matched to your interests and your marks. Explore each one before deciding — there is no single right answer.',
     explore_next: (llmResult && sanitizeText(llmResult.explore_next)) ||
       'Try answering a few more questions differently to discover adjacent fields you might enjoy.',
+    ai_status: getAiStatus(),
     meta: {
       candidateCount: candidates.length,
       droppedHallucinations: dropped,

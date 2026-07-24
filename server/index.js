@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 import { runMultiAgentOrchestrator } from './agents/Orchestrator.js'
 import { HISTORICAL_CUTOFFS } from './cutoffsData.js'
 import { recommendPathways } from './ai/pathwayAdvisor.js'
+import { getAiStatus } from './ai/llmClient.js'
 import {
   QUESTION_BANK,
   DOMAINS,
@@ -1137,6 +1138,12 @@ async function callGemini(prompt, { studentId = null, callType = 'guidance' } = 
 // Health Check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' })
+})
+
+// AI availability — lets the frontend show an honest "AI busy" banner instead
+// of silently serving sample data when the token quota is exhausted.
+app.get('/api/ai-status', (req, res) => {
+  res.json(getAiStatus())
 })
 
 // ─── Rank Predictor (Historical Cutoff Comparison) ───────────────────────────

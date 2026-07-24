@@ -659,13 +659,12 @@ function Step3({ form, setForm, errors, classLevel = 'class12' }) {
           value={form.preferredModeOfAdmission}
           onChange={(e) => setForm((f) => ({ ...f, preferredModeOfAdmission: e.target.value }))}
           options={[
+            { value: 'JEE Main', label: 'JEE Main (NITs, IIITs, State GFTIs)' },
             { value: 'JEE Advanced', label: 'JEE Advanced (for IITs)' },
-            { value: 'JEE Main', label: 'JEE Main (for NITs, IIITs, etc.)' },
             { value: 'NEET', label: 'NEET (for MBBS/BDS/Medical)' },
-            { value: 'KCET', label: 'KCET (Karnataka State Quota)' },
-            { value: 'COMEDK', label: 'COMEDK (Karnataka Private Colleges)' },
-            { value: 'CUET', label: 'CUET (Central Universities)' },
-            { value: 'State CET', label: 'State CET (Other State Level Quotas)' },
+            { value: 'CUET', label: 'CUET (Central & many State Universities)' },
+            { value: 'State CET', label: 'State CET (your state — KCET/MHT-CET/AP EAMCET/WBJEE/etc.)' },
+            { value: 'COMEDK', label: 'COMEDK / Private Consortium (state private colleges)' },
             { value: 'Management Quota', label: 'Management Quota (Direct Admission)' },
             { value: 'Diploma Lateral Entry', label: 'Diploma Lateral Entry (to Engineering)' },
             { value: 'Other', label: 'Other / Direct Merit Admissions' }

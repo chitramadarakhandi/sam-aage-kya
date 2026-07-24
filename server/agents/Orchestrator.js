@@ -1,95 +1,94 @@
 import { createClient } from '@supabase/supabase-js'
-import Groq from 'groq-sdk'
 import { normalizeStream, streamsMatch } from '../config/streams.js'
 import { enforceGuidanceEvidence } from '../domain/verification/verifyEvidence.js'
+import { callLLM, isAiAvailable, getAiStatus } from '../ai/llmClient.js'
 
 // Helper to check environment configuration
 const supabaseUrl = process.env.SUPABASE_URL || 'https://your-project-ref.supabase.co'
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || ''
 const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null
 
-// Unified LLM Client matching index.js's implementation
-class UnifiedAIClient {
-  // NOTE: Read API keys lazily on each call (NOT in the constructor).
-  // This module is imported by index.js BEFORE dotenv.config() runs, so reading
-  // env vars at construction time captures stale/empty values and can wrongly
-  // fall back to a stray OPENAI_API_KEY. Reading them per-call guarantees the
-  // .env values (GROQ_API_KEY) are available.
-  async getCompletion({ model, messages, temperature, max_tokens, response_format }) {
-    const groqApiKey = process.env.GROQ_API_KEY
-    const openaiApiKey = process.env.OPENAI_API_KEY
-
-    let url, headers, bodyModel
-    if (groqApiKey) {
-      url = 'https://api.groq.com/openai/v1/chat/completions'
-      headers = {
-        'Authorization': `Bearer ${groqApiKey}`,
-        'Content-Type': 'application/json'
-      }
-      bodyModel = model || process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
-    } else if (openaiApiKey) {
-      url = 'https://api.openai.com/v1/chat/completions'
-      headers = {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json'
-      }
-      bodyModel = 'gpt-4o-mini'
-    } else {
-      throw new Error('NO_API_KEY')
-    }
-
-    const body = {
-      model: bodyModel,
-      messages,
-      temperature: temperature ?? 0.7,
-      max_tokens: max_tokens ?? 2048,
-    }
-
-    if (response_format) {
-      body.response_format = response_format
-    }
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body)
-    })
-
-    if (!response.ok) {
-      const errText = await response.text()
-      throw new Error(`AI API error (${response.status}): ${errText}`)
-    }
-
-    const data = await response.json()
-    return data.choices[0].message.content
-  }
+// Call the shared LLM client. Uses the consolidated client so all AI calls
+// share ONE code path (env handling, token circuit breaker, provider fallback).
+async function runLLMAgent(prompt, responseJson = true) {
+  return callLLM(prompt, { json: responseJson, maxTokens: 800, temperature: 0.2 })
 }
 
-const aiClient = new UnifiedAIClient()
+/**
+ * COMBINED GUIDANCE AGENT — one LLM call instead of four.
+ * Produces profile analysis + career paths + roadmaps + summary in a single
+ * request. This cuts token usage ~75% (4 calls → 1), so the free-tier budget
+ * lasts ~4x longer and rate limits are hit far less often.
+ * Returns null on failure so the orchestrator falls back to the per-agent path.
+ */
+export async function runCombinedGuidanceAgent(state) {
+  const form = state.formData
+  const isClass10 = form.classLevel === 'class10'
+  const sLower = (form.stream || '').toLowerCase()
+  const aLower = (form.preferredModeOfAdmission || '').toLowerCase()
+  const isDiplomaTrack =
+    sLower.includes('diploma') || sLower.includes('polytechnic') ||
+    sLower.includes('iti') || sLower.includes('vocational') ||
+    aLower.includes('lateral') || aLower.includes('diploma')
 
-// Call LLM safely
-async function runLLMAgent(prompt, responseJson = true) {
-  try {
-    const responseText = await aiClient.getCompletion({
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.2, // Low temperature for deterministic/reliable agent behavior
-      max_tokens: 1500,
-      response_format: responseJson ? { type: 'json_object' } : undefined
-    })
-
-    if (responseJson) {
-      const cleaned = responseText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-      return JSON.parse(cleaned)
-    }
-    return responseText
-  } catch (err) {
-    console.error('LLM Agent execution failed:', err.message)
-    throw err
+  let modeInstruction
+  if (isClass10) {
+    modeInstruction = 'This is a CLASS 10 student. "path" values MUST be STREAM choices for 11th/12th (e.g. "Science (PCM)", "Commerce with Maths", "Arts / Humanities", "Polytechnic Diploma (Engineering)", "ITI"). Do NOT recommend degrees like B.Tech/MBBS/CA.'
+  } else if (isDiplomaTrack) {
+    modeInstruction = 'This is a DIPLOMA / POLYTECHNIC / ITI / LATERAL-ENTRY student. "path" values MUST be practical routes ONLY: "B.Tech via Lateral Entry (after Diploma)", "B.Voc", "Job-oriented Diplomas & Certifications", "Apprenticeship". Do NOT recommend CA, MBBS, BBA or exam-heavy degrees.'
+  } else {
+    modeInstruction = `This is a CLASS 12 student in the "${form.stream}" stream. "path" values are college courses/careers (e.g. B.Tech CSE, B.Sc Biotech, CA, B.Des) that fit their stream.`
   }
+
+  const prompt = `You are an honest Indian career counsellor. Analyse this student and produce guidance in ONE JSON response.
+
+STUDENT:
+- Class level: ${form.classLevel || 'class12'}
+- Board: ${form.board || 'NA'}, Marks: ${form.marks || 'NA'}%
+- Stream: ${form.stream || 'NA'}
+- Home state: ${form.state || 'NA'}, Family income: ${form.incomeRange || 'NA'}
+- Interests: ${form.interests || 'NA'}
+- Biggest fear: ${form.biggestFear || 'NA'}
+- Admission mode: ${form.preferredModeOfAdmission || 'NA'}
+
+${modeInstruction}
+
+INTEREST RULE: map creative/design interests (poster, sketching, UI) to modern careers (B.Des UI/UX, Animation, Digital Marketing), NOT traditional fine arts unless they mention performing arts/music.
+
+Recommend 2-3 best-fit paths. For each, give a 4-year roadmap (years 1-4, each with focus/skills/milestones). Be specific to THIS student's interests and marks.
+
+Respond ONLY with JSON:
+{
+  "profile": { "academicStanding": "...", "financialCategory": "...", "riskAppetite": "...", "keyConstraints": ["..."], "keyStrengths": ["..."], "coachingNeeds": "..." },
+  "summary": "warm 3-sentence summary specific to this student",
+  "oneThingToDoThisWeek": "one concrete action",
+  "recommendations": [
+    {
+      "path_id": "short_kebab_slug",
+      "path": "path/stream/course name per the rule above",
+      "honest_take": "2 honest sentences on difficulty/competition/fit",
+      "requires_entrance_exam": "specific exam or None",
+      "opens_doors_to": ["role1","role2"],
+      "watch_out_for": "main pitfall",
+      "backup_plan": "specific backup",
+      "roadmap_years": [
+        { "year": 1, "focus": "...", "skills": ["..."], "certifications": ["..."], "projects": ["..."], "milestones": ["..."] },
+        { "year": 2, "focus": "...", "skills": ["..."], "certifications": ["..."], "projects": ["..."], "milestones": ["..."] },
+        { "year": 3, "focus": "...", "skills": ["..."], "certifications": ["..."], "projects": ["..."], "milestones": ["..."] },
+        { "year": 4, "focus": "...", "skills": ["..."], "certifications": ["..."], "projects": ["..."], "milestones": ["..."] }
+      ]
+    }
+  ]
+}`
+
+  // One call, a bit more output room since it produces everything at once.
+  return callLLM(prompt, { json: true, maxTokens: 2200, temperature: 0.2 })
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// 10 SPECIALIZED AGENTS WITH DEGRADED MOCK FALLBACKS
+// SPECIALIZED AGENTS WITH DEGRADED MOCK FALLBACKS
+// A subset call the LLM (reasoning); the rest are deterministic (lookups/rules)
+// to keep token spend low and latency fast.
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -312,21 +311,49 @@ export async function runCareerRecommendationAgent(state) {
   const profileAnalysis = state.profileAnalysis
   try {
     const isClass10 = form.classLevel === 'class10'
-    const classLevelInstruction = isClass10
-      ? `
+    const streamLower = (form.stream || '').toLowerCase()
+    const admissionLower = (form.preferredModeOfAdmission || '').toLowerCase()
+    // Detect a diploma / polytechnic / ITI / lateral-entry student — they need
+    // vocational + lateral-entry paths, NOT generic degrees like CA or MBBS.
+    const isDiplomaTrack =
+      streamLower.includes('diploma') || streamLower.includes('polytechnic') ||
+      streamLower.includes('iti') || streamLower.includes('vocational') ||
+      admissionLower.includes('lateral') || admissionLower.includes('diploma')
+
+    let classLevelInstruction
+    if (isClass10) {
+      classLevelInstruction = `
     ⚠️ THIS STUDENT IS IN CLASS 10 (choosing what to study in Class 11 & 12).
     You MUST recommend STREAM CHOICES for 11th/12th — NOT college degrees.
     Valid "path" values are streams such as: "Science (PCM)", "Science (PCB)",
     "Science (PCMB)", "Commerce with Maths", "Commerce without Maths",
-    "Arts / Humanities". Do NOT recommend B.Tech, BCA, MBBS, diplomas, or any
-    college course — those come after Class 12. For each recommended stream,
-    explain which future careers it opens up, based on the student's interests.
+    "Arts / Humanities", and also practical routes: "Polytechnic Diploma (Engineering)",
+    "ITI (Industrial Training Institute)". If the student wants a job-ready or
+    hands-on path, DO recommend Diploma/ITI. Do NOT recommend B.Tech, BCA, MBBS,
+    or degree courses — those come after Class 12.
     - "requires_entrance_exam" should be "None (stream selection, not entrance-based)".
     - "backup_plan" should describe switching to another stream if this one is too hard.`
-      : `
+    } else if (isDiplomaTrack) {
+      classLevelInstruction = `
+    ⚠️ THIS IS A DIPLOMA / POLYTECHNIC / ITI / LATERAL-ENTRY STUDENT.
+    They already hold (or are pursuing) a diploma/ITI, NOT a regular 12th stream.
+    You MUST recommend PRACTICAL, DIPLOMA-APPROPRIATE next steps ONLY. Valid paths:
+      • "B.Tech via Lateral Entry (after Diploma)" — join engineering directly in 2nd year via LEET/ECET
+      • "B.Voc (Vocational Degree)" — skill-first UGC degree
+      • "Job-oriented Diplomas & Certifications" (IT, design, trades, digital marketing)
+      • "Apprenticeship / NAPS (earn-while-you-learn)"
+      • Advanced diploma or a specialised trade certification in their field
+    DO NOT recommend CA, MBBS, BBA, generic B.Com/BA, or exam-heavy degree routes —
+    those do not fit a diploma/lateral-entry student. Focus on lateral entry to
+    engineering, vocational degrees, apprenticeships, and skill certifications.
+    - "requires_entrance_exam" should name the real route (e.g. "LEET / ECET (Lateral Entry)" or "None / Direct admission").
+    - "backup_plan" should be another practical/vocational option.`
+    } else {
+      classLevelInstruction = `
     THIS STUDENT IS IN CLASS 12 (choosing a college course/career after 12th).
     Recommend specific college courses / career tracks (e.g. B.Tech Computer
     Science, B.Sc Biotechnology, CA, B.Des), matching their stream "${form.stream}".`
+    }
 
     const prompt = `
     You are the Career Recommendation Agent. Recommends the best career paths and courses matching this profile.
@@ -363,6 +390,47 @@ export async function runCareerRecommendationAgent(state) {
     console.warn('[CareerRecommendationAgent] Falling back to local mock carrier recommendations...')
     const isClass10 = form.classLevel === 'class10'
     const stream = form.stream || 'Commerce'
+    const sLower = (form.stream || '').toLowerCase()
+    const aLower = (form.preferredModeOfAdmission || '').toLowerCase()
+    const isDiplomaTrack =
+      sLower.includes('diploma') || sLower.includes('polytechnic') ||
+      sLower.includes('iti') || sLower.includes('vocational') ||
+      aLower.includes('lateral') || aLower.includes('diploma')
+
+    // Diploma / lateral-entry students get practical routes, never CA/MBBS.
+    if (!isClass10 && isDiplomaTrack) {
+      return {
+        recommendations: [
+          {
+            path_id: 'btech_lateral',
+            path: 'B.Tech via Lateral Entry (after Diploma)',
+            honest_take: 'Your diploma lets you skip straight into the 2nd year of a B.Tech via LEET/ECET — a cheaper, faster route to an engineering degree than starting fresh.',
+            requires_entrance_exam: 'State Lateral Entry test (LEET / ECET)',
+            opens_doors_to: ['Engineer in your diploma branch', 'Core industry / PSU roles'],
+            watch_out_for: 'Seats are limited and the 2nd-year jump can be academically intense.',
+            backup_plan: 'Continue with a B.Voc or advanced diploma while gaining work experience.'
+          },
+          {
+            path_id: 'bvoc',
+            path: 'B.Voc (Vocational Degree)',
+            honest_take: 'A skill-first UGC-recognised degree that builds directly on your diploma with strong employability.',
+            requires_entrance_exam: 'None / Merit',
+            opens_doors_to: ['Skilled technician', 'Supervisor', 'Specialist in your trade'],
+            watch_out_for: 'Choose a college with real industry tie-ups, not just a paper degree.',
+            backup_plan: 'Job-oriented certifications while working.'
+          },
+          {
+            path_id: 'diploma_job',
+            path: 'Job-oriented Diplomas & Certifications',
+            honest_take: 'Short, practical programs (IT, CAD, digital marketing, trades) that get you earning quickly or add a high-demand skill on top of your diploma.',
+            requires_entrance_exam: 'None / Direct admission',
+            opens_doors_to: ['Skilled technician', 'Junior developer / designer', 'Trade professional'],
+            watch_out_for: 'Pick certifications the industry actually recognises.',
+            backup_plan: 'Apprenticeship (NAPS) to earn while you learn.'
+          }
+        ]
+      }
+    }
 
     if (isClass10) {
       return {
@@ -384,6 +452,15 @@ export async function runCareerRecommendationAgent(state) {
             opens_doors_to: ["Chartered Accountancy", "Business Analytics", "Investment Banking"],
             watch_out_for: "Requires strong logical and quantitative abilities.",
             backup_plan: "General Commerce without Maths if Accounting gets too complex."
+          },
+          {
+            path_id: 'diploma_polytechnic',
+            path: "Polytechnic Diploma (Engineering)",
+            honest_take: "A hands-on, job-ready route after 10th. You can start earning sooner or join B.Tech directly in the 2nd year via lateral entry.",
+            requires_entrance_exam: "None (stream selection, not entrance-based)",
+            opens_doors_to: ["Junior Engineer / Technician", "B.Tech via lateral entry", "Government technical jobs"],
+            watch_out_for: "Less theory than a degree; aim for lateral entry if you want to go further.",
+            backup_plan: "Switch to Science (PCM) in 11th if you prefer the degree route."
           }
         ]
       }
@@ -469,46 +546,11 @@ export async function runCollegeRecommendationAgent(state) {
   const form = state.formData
   const careerPaths = state.careerPaths
   const retrievedColleges = state.retrievedColleges
-  try {
-    const prompt = `
-    You are the College Recommendation Agent. Map the recommended career paths to the most suitable colleges.
-    Career Recommendations: ${JSON.stringify(careerPaths)}
-    Retrieved Colleges: ${JSON.stringify(retrievedColleges.slice(0, 10))}
-    Student Budget: ${form.budget}
-    Preferred State/City: ${form.preferredState} / ${form.preferredCity}
-    Marks: ${form.marks}%
-    Admission Mode: ${form.preferredModeOfAdmission}
-
-    CRITICAL GROUNDING RULES:
-    1. You MUST ONLY recommend colleges that are present in the "Retrieved Colleges" list provided above. Do NOT hallucinate other institutions.
-    2. Ensure that the yearly fee range of each recommended college is compatible with the Student Budget (${form.budget}) and that their minimum marks requirements are met by the student's marks of ${form.marks}%.
-    3. State clearly in the "whyFit" field how the college's fee range fits the student's budget and how their marks meet the admission criteria.
-    4. The "path_id" in each mapping MUST exactly match the "path_id" from the Career Recommendations above. Do NOT alter or omit it.
-
-    Map colleges to the career paths.
-    Respond ONLY with a JSON object:
-    {
-      "mappings": [
-        {
-          "path_id": "Copy exactly from Career Recommendations — do not change",
-          "path": "Career/Course name (matching one of the recommendations)",
-          "colleges": [
-            {
-              "name": "College Name (must be from Retrieved Colleges list)",
-              "city": "City",
-              "state": "State",
-              "feeRange": "₹X–₹Y/yr",
-              "admissionMode": "How to get in (e.g., JEE, KCET, Management)",
-              "whyFit": "1-sentence why this fits marks and budget"
-            }
-          ]
-        }
-      ]
-    }
-    `
-    return await runLLMAgent(prompt)
-  } catch (err) {
-    console.warn('[CollegeRecommendationAgent] Falling back to local mock mapping...')
+  // DETERMINISTIC (no LLM): the retrieved colleges are already DB-verified and
+  // ranked by the RAG agent, so mapping them to paths is a pure lookup. This
+  // removes one LLM call per request AND is more accurate than asking the model
+  // to re-pick colleges (which risked hallucination and needed a guardrail).
+  {
     return {
       mappings: (careerPaths.recommendations || []).map(opt => {
         const pathId = opt.path_id || ''
@@ -638,35 +680,11 @@ export async function runCollegeRecommendationAgent(state) {
  * 5. Scholarship Agent
  */
 export async function runScholarshipAgent(state) {
-  const form = state.formData
-  const profileAnalysis = state.profileAnalysis
   const retrievedScholarships = state.retrievedScholarships
-  try {
-    const prompt = `
-    You are the Scholarship Agent. Find matching scholarships and financial aid.
-    Profile Analysis: ${JSON.stringify(profileAnalysis)}
-    Retrieved Scholarships: ${JSON.stringify(retrievedScholarships.slice(0, 5))}
-    Student Income Range: ${form.incomeRange}
-    Student State: ${form.state}
-    Marks: ${form.marks}%
-
-    Recommend 2-3 scholarships. Include application instructions.
-    Respond ONLY with a JSON object:
-    {
-      "scholarships": [
-        {
-          "name": "Scholarship Name",
-          "description": "Brief description",
-          "eligibility": "Marks/income criteria",
-          "amount": "Approx amount or benefit",
-          "applicationUrl": "URL or 'Search NSP Portal'"
-        }
-      ]
-    }
-    `
-    return await runLLMAgent(prompt)
-  } catch (err) {
-    console.warn('[ScholarshipAgent] Falling back to local mock scholarship suggestions...')
+  // DETERMINISTIC (no LLM): scholarships come from the DB (RAG-filtered by the
+  // student's income/marks/stream). Presenting them is a lookup, not reasoning —
+  // and using the verified rows avoids the LLM inventing fake scholarship names.
+  {
     return {
       scholarships: retrievedScholarships.length > 0
         ? retrievedScholarships.slice(0, 2).map(s => ({
@@ -701,29 +719,10 @@ export async function runScholarshipAgent(state) {
  */
 export async function runStudyAbroadAgent(state) {
   const form = state.formData
-  const profileAnalysis = state.profileAnalysis
-  try {
-    const prompt = `
-    You are the Study Abroad Agent. Evaluate international study feasibility for this student.
-    Profile Analysis: ${JSON.stringify(profileAnalysis)}
-    Marks: ${form.marks}%
-    Annual Budget: ${form.budget}
-
-    Suggest the best country, required exams (IELTS, TOEFL, SAT, etc.), visa info, and estimated tuition.
-    Respond ONLY with a JSON object:
-    {
-      "isFeasible": true/false,
-      "recommendedCountry": "Country name (e.g. Germany for low budget, USA for high budget)",
-      "targetUniversities": ["University 1", "University 2"],
-      "requiredExams": ["Exams needed"],
-      "estimatedYearlyCost": "Estimated tuition + living costs",
-      "visaDifficulty": "Low/Medium/High with short reason",
-      "scholarshipsAvailable": ["International scholarship name or None"]
-    }
-    `
-    return await runLLMAgent(prompt)
-  } catch (err) {
-    console.warn('[StudyAbroadAgent] Falling back to local study abroad guide...')
+  // DETERMINISTIC (no LLM): study-abroad feasibility is a simple budget-based
+  // rule. Keeping it code-driven removes another LLM call and keeps the numbers
+  // consistent rather than letting the model invent tuition figures.
+  {
     const costLow = form.budget === 'below_2L' || form.budget === '2L-5L'
     return {
       isFeasible: !costLow,
@@ -798,48 +797,78 @@ export async function runCareerRoadmapAgent(state) {
     `
     return await runLLMAgent(prompt)
   } catch (err) {
-    console.warn('[CareerRoadmapAgent] Falling back to local mock roadmap maker...')
+    console.warn('[CareerRoadmapAgent] Falling back to local domain-aware roadmap maker...')
     return {
       roadmaps: (careerPaths.recommendations || []).map(opt => ({
         path_id: opt.path_id,
         path: opt.path,
-        years: [
-          {
-            year: 1,
-            focus: "Build core fundamentals and theoretical foundations",
-            skills: ["Fundamental Concepts", "Essential Tools", "Basic Coding/Logic"],
-            certifications: ["Introduction Certificate (Coursera/edX)"],
-            projects: ["Basic static portfolio project"],
-            milestones: ["Understand fundamentals", "Develop study schedule"]
-          },
-          {
-            year: 2,
-            focus: "Master practical intermediate frameworks",
-            skills: ["Intermediate tools", "Collaborative work systems", "Version control"],
-            certifications: ["Advanced Technical Certifications"],
-            projects: ["Medium sized full stack application"],
-            milestones: ["Establish professional LinkedIn profile", "Participate in local hackathon"]
-          },
-          {
-            year: 3,
-            focus: "Secure industry internship and specialise",
-            skills: ["System design", "Cloud engineering basics", "Advanced subjects"],
-            certifications: ["Cloud Practitioner Certification"],
-            projects: ["2-month summer project at startup"],
-            milestones: ["Complete industry internship", "Deliver a live project"]
-          },
-          {
-            year: 4,
-            focus: "Interview preparation and industry transition",
-            skills: ["Technical interview cases", "Aptitude training", "Communication skills"],
-            certifications: ["Final capstone project credential"],
-            projects: ["Production deployment of final application"],
-            milestones: ["Graduate with a high-fidelity portfolio", "Secure job offer / PG seat"]
-          }
-        ]
+        years: buildRoadmapForPath(opt.path, opt.requires_entrance_exam),
       }))
     }
   }
+}
+
+// Domain-aware roadmap builder so the fallback reflects the ACTUAL path
+// (medical ≠ engineering ≠ commerce ≠ law ≠ diploma), never a generic tech one.
+function buildRoadmapForPath(pathName = '', exam = '') {
+  const p = pathName.toLowerCase()
+  const examNote = exam && exam !== 'None' ? exam : 'the relevant entrance/qualifying exam'
+
+  const mk = (year, focus, skills, certifications, projects, milestones) =>
+    ({ year, focus, skills, certifications, projects, milestones })
+
+  // Medical (MBBS/BDS/nursing/allied/pharmacy/physio)
+  if (/mbbs|bds|medic|nurs|pharm|physio|bams|bhms|doctor|allied|radiolog|optom/.test(p)) {
+    return [
+      mk(1, 'Build strong biology & chemistry foundations and begin exam prep', ['NCERT mastery', 'Time management', 'Note-making'], [`${examNote} foundation course`], ['Maintain a revision journal'], ['Complete Class 11 syllabus', 'Attempt first mock tests']),
+      mk(2, 'Intensive entrance preparation and full syllabus revision', ['Problem-solving speed', 'Test temperament'], [`${examNote} crash course`], ['Weekly full-length mocks'], ['Score consistently in mocks', 'Clear the entrance exam']),
+      mk(3, 'Enter the professional program; master clinical/theory basics', ['Anatomy/physiology or core subjects', 'Lab & practical skills'], ['College practical certifications'], ['Case studies / lab work'], ['Clear university exams', 'Start clinical exposure']),
+      mk(4, 'Specialise, gain clinical hours and plan PG/licensing', ['Advanced clinical skills', 'Patient communication'], ['Internship/clinical certification'], ['Supervised clinical rotations'], ['Complete internship', 'Prepare for PG/licensing exam']),
+    ]
+  }
+  // Commerce / finance (CA/CS/CMA/B.Com/BBA/economics)
+  if (/ca\b|chartered|company secretary|cma|b\.?com|bba|bms|commerce|finance|account|econom/.test(p)) {
+    return [
+      mk(1, 'Build accounting, economics and quantitative foundations', ['Accounting basics', 'Business maths', 'MS Excel'], ['Foundation level (CA/CS/CMA) or NISM basics'], ['Personal budget & mock ledger project'], ['Clear foundation exams', 'Understand core commerce concepts']),
+      mk(2, 'Intermediate concepts: taxation, audit, corporate law', ['Taxation basics', 'Financial analysis'], ['Intermediate professional level / advanced Excel'], ['Analyse a real company\u2019s financials'], ['Clear intermediate exams', 'Start articleship/internship if applicable']),
+      mk(3, 'Practical training, internships and specialisation', ['Auditing', 'Financial modelling', 'Communication'], ['Advanced finance certification (e.g. financial modelling)'], ['Internship at a firm / live audit'], ['Complete internship', 'Build a professional network']),
+      mk(4, 'Final exams, placements and career entry', ['Interview & case prep', 'Domain expertise'], ['Final professional level / MBA prep'], ['Capstone finance project'], ['Clear final exams', 'Secure a role or PG seat']),
+    ]
+  }
+  // Law
+  if (/law|llb|legal/.test(p)) {
+    return [
+      mk(1, 'Foundations of law, legal reasoning and language', ['Legal reasoning', 'English & GK', 'Reading speed'], [`${examNote} prep (CLAT/AILET)`], ['Debate/moot participation'], ['Clear the law entrance', 'Join a good law school']),
+      mk(2, 'Core subjects: constitutional, contract, criminal law', ['Legal research', 'Drafting'], ['Legal research certification'], ['First moot court'], ['Strong grades', 'Join a legal-aid cell']),
+      mk(3, 'Internships with firms/chambers and specialisation', ['Client counselling', 'Case analysis'], ['Specialisation course (corporate/IPR/etc.)'], ['Internships at law firms/courts'], ['Complete multiple internships', 'Publish a paper/blog']),
+      mk(4, 'Prepare for practice, judiciary, or corporate roles', ['Advocacy or corporate law', 'Interview prep'], ['Bar exam / judiciary prep'], ['Final-year dissertation'], ['Graduate', 'Secure a firm/judiciary/LLM path']),
+    ]
+  }
+  // Design / creative
+  if (/design|b\.?des|animation|vfx|fashion|architect|fine art|ux|ui/.test(p)) {
+    return [
+      mk(1, 'Build design fundamentals and a starter portfolio', ['Sketching', 'Design principles', 'Basic tools (Figma/Photoshop)'], [`${examNote} prep (UCEED/NID/NIFT)`], ['Personal portfolio of 3-5 pieces'], ['Clear design entrance', 'Join a design program']),
+      mk(2, 'Specialise (UI/UX, product, fashion, animation)', ['Chosen-specialisation tools', 'Design thinking'], ['Specialisation certification'], ['2-3 real briefs / client-style projects'], ['Grow portfolio', 'Win/enter a design competition']),
+      mk(3, 'Internship and industry-standard workflow', ['Collaboration', 'Prototyping', 'Feedback loops'], ['Industry tool certification'], ['Internship at a studio/startup'], ['Complete internship', 'Publish case studies']),
+      mk(4, 'Professional portfolio and job/freelance launch', ['Portfolio storytelling', 'Interview prep'], ['Advanced/pro certification'], ['Capstone design project'], ['Graduate with a strong portfolio', 'Secure a design role/freelance clients']),
+    ]
+  }
+  // Diploma / vocational / lateral entry
+  if (/diploma|polytechnic|iti|vocational|b\.?voc|lateral|apprentic|certification/.test(p)) {
+    return [
+      mk(1, 'Master the practical trade fundamentals hands-on', ['Core trade skills', 'Workshop safety', 'Tool handling'], ['Trade foundation certificate'], ['Hands-on shop-floor tasks'], ['Complete year-1 practicals', 'Build a skills logbook']),
+      mk(2, 'Advance skills and prepare for lateral entry / jobs', ['Advanced trade techniques', 'Basic CAD/software for the trade'], ['Advanced skill certification'], ['A real, functional build/repair project'], ['Clear diploma exams', 'Prepare for LEET/ECET if going to B.Tech']),
+      mk(3, 'Lateral entry to degree OR skilled employment', ['Applied engineering / specialisation', 'Workplace communication'], ['Industry-recognised certification'], ['Apprenticeship or 2nd-year degree projects'], ['Join B.Tech 2nd year or a skilled job', 'Gain paid experience']),
+      mk(4, 'Specialise and grow into a senior/technical role', ['Supervisory skills', 'Advanced tools'], ['Sector-specific advanced certification'], ['Lead a small project/team'], ['Earn a promotion or graduate', 'Plan next skill upgrade']),
+    ]
+  }
+  // Default: engineering / tech / science
+  return [
+    mk(1, 'Build core fundamentals and theoretical foundations', ['Core subject fundamentals', 'Basic programming/logic', 'Study discipline'], ['Introductory certificate (Coursera/edX/NPTEL)'], ['A small starter project'], ['Understand fundamentals', 'Set a study schedule']),
+    mk(2, 'Master practical intermediate skills and tools', ['Intermediate tools', 'Teamwork & version control'], ['Domain technical certification'], ['A medium-sized project'], ['Build an online profile (LinkedIn/GitHub)', 'Join a competition/hackathon']),
+    mk(3, 'Secure an internship and specialise', ['Specialisation subjects', 'Real-world problem solving'], ['Advanced/industry certification'], ['A summer internship or live project'], ['Complete an internship', 'Ship something real']),
+    mk(4, 'Prepare for placements or higher studies', ['Interview & aptitude prep', 'Communication'], ['Capstone credential'], ['A production-ready capstone project'], ['Graduate with a strong portfolio', 'Secure a job or PG seat']),
+  ]
 }
 
 /**
@@ -1009,29 +1038,55 @@ export async function runMultiAgentOrchestrator(formData) {
     }
   }
 
-  // ─── STAGE 1: Profile & Data Retrieval (Parallel) ───
-  console.log('[Orchestrator] Starting Stage 1: Profile Analysis & Database Retrieval')
-  const [profileResult, ragResult] = await Promise.all([
-    logStep('Profile Analysis Agent', () => runProfileAnalysisAgent(state)),
-    logStep('Search & Retrieval Agent', () => runSearchRetrievalAgent(state))
+  // ─── STAGE 1: DB retrieval (no LLM) + ONE combined AI call ───
+  // The combined agent produces profile + career paths + roadmaps + summary in
+  // a single LLM request (≈75% fewer tokens than the old 4-call pipeline).
+  console.log('[Orchestrator] Starting Stage 1: DB retrieval + combined guidance')
+  const [ragResult, combined] = await Promise.all([
+    logStep('Search & Retrieval Agent', () => runSearchRetrievalAgent(state)),
+    logStep('Combined Guidance Agent', () => runCombinedGuidanceAgent(state)),
   ])
 
-  state.profileAnalysis = profileResult || { academicStanding: 'Medium', financialCategory: 'Subsidized', riskAppetite: 'Balanced', keyConstraints: [], keyStrengths: [], coachingNeeds: '' }
   state.retrievedColleges = ragResult?.colleges || []
   state.retrievedScholarships = ragResult?.scholarships || []
 
-  // ─── STAGE 2: Career Recommendation ───
-  console.log('[Orchestrator] Starting Stage 2: Career Recommendation')
-  const careerResult = await logStep('Career Recommendation Agent', () => runCareerRecommendationAgent(state))
-  state.careerPaths = careerResult || { recommendations: [] }
+  if (combined && Array.isArray(combined.recommendations) && combined.recommendations.length > 0) {
+    // Combined call succeeded — unpack it into the state shape the rest expects.
+    state.profileAnalysis = combined.profile || null
+    state.careerPaths = { recommendations: combined.recommendations.map(r => ({
+      path_id: r.path_id, path: r.path, honest_take: r.honest_take,
+      requires_entrance_exam: r.requires_entrance_exam, opens_doors_to: r.opens_doors_to,
+      watch_out_for: r.watch_out_for, backup_plan: r.backup_plan,
+    })) }
+    state.roadmaps = combined.recommendations.map(r => ({
+      path_id: r.path_id, path: r.path, years: r.roadmap_years || [],
+    }))
+    state.finalSummary = { summary: combined.summary, oneThingToDoThisWeek: combined.oneThingToDoThisWeek }
+    state._combinedUsed = true
+  } else {
+    // Combined call failed (AI down / bad JSON) → fall back to the per-agent
+    // pipeline (which itself degrades to deterministic mocks).
+    console.warn('[Orchestrator] Combined agent unavailable — using per-agent fallback pipeline.')
+    const [profileResult, careerResult, roadmapResult] = await Promise.all([
+      logStep('Profile Analysis Agent', () => runProfileAnalysisAgent(state)),
+      logStep('Career Recommendation Agent', () => runCareerRecommendationAgent(state)),
+      logStep('Career Roadmap Agent', () => runCareerRoadmapAgent(state)),
+    ])
+    state.profileAnalysis = profileResult || { academicStanding: 'Medium', financialCategory: 'Subsidized', riskAppetite: 'Balanced', keyConstraints: [], keyStrengths: [], coachingNeeds: '' }
+    state.careerPaths = careerResult || { recommendations: [] }
+    state.roadmaps = roadmapResult?.roadmaps || []
+    state.finalSummary = null
+  }
 
-  // ─── STAGE 3: Mappings, Roadmaps, Scholarships & Mentors (Parallel) ───
-  console.log('[Orchestrator] Starting Stage 3: College, Scholarship, Roadmap, Mentor & Study Abroad planning')
-  const [collegeResult, scholarshipResult, studyAbroadResult, roadmapResult, mentorResult, youtubeResult] = await Promise.all([
+  state.profileAnalysis = state.profileAnalysis || { academicStanding: 'Medium', financialCategory: 'Subsidized', riskAppetite: 'Balanced', keyConstraints: [], keyStrengths: [], coachingNeeds: '' }
+
+  // ─── STAGE 2: Deterministic enrichment (NO LLM) — colleges, scholarships,
+  //     study-abroad, mentors, YouTube, and summary fallback if needed ───
+  console.log('[Orchestrator] Starting Stage 2: Deterministic enrichment (colleges, scholarships, mentors)')
+  const [collegeResult, scholarshipResult, studyAbroadResult, mentorResult, youtubeResult] = await Promise.all([
     logStep('College Recommendation Agent', () => runCollegeRecommendationAgent(state)),
     logStep('Scholarship Agent', () => runScholarshipAgent(state)),
     logStep('Study Abroad Agent', () => runStudyAbroadAgent(state)),
-    logStep('Career Roadmap Agent', () => runCareerRoadmapAgent(state)),
     logStep('Mentor Agent', () => runMentorAgent(state)),
     logStep('YouTube Resource Agent', () => runYouTubeResourceAgent(state))
   ])
@@ -1039,9 +1094,14 @@ export async function runMultiAgentOrchestrator(formData) {
   state.collegeRecommendations = collegeResult?.mappings || []
   state.scholarshipRecommendations = scholarshipResult?.scholarships || []
   state.studyAbroadGuidance = studyAbroadResult || { isFeasible: false, recommendedCountry: 'Germany', requiredExams: [], targetUniversities: [], estimatedYearlyCost: 'N/A' }
-  state.roadmaps = roadmapResult?.roadmaps || []
   state.mentorMatches = mentorResult || []
   state.youtubeResources = youtubeResult || []
+
+  // If we didn't get a summary from the combined call, synthesize one (no LLM).
+  if (!state.finalSummary) {
+    const sum = await logStep('Summary Agent', () => runSummaryAgent(state))
+    state.finalSummary = sum || { summary: 'Guidance compiled.', oneThingToDoThisWeek: 'Review your options.' }
+  }
 
   // ─── COLLEGE GUARDRAIL: strip hallucinated names (Bug #2 fix) ───────────────
   // Build an allow-list from the DB-retrieved colleges (the only verified source of truth).
@@ -1062,11 +1122,7 @@ export async function runMultiAgentOrchestrator(formData) {
     }
   }
 
-  // ─── STAGE 4: Synthesis & Final Summary ───
-  console.log('[Orchestrator] Starting Stage 4: Synthesis & Final Summary')
-  const summaryResult = await logStep('Summary Agent', () => runSummaryAgent(state))
-  state.finalSummary = summaryResult || { summary: 'Guidance compiled successfully.', oneThingToDoThisWeek: 'Review options.' }
-
+  // (Summary already produced by the combined agent, or synthesized in Stage 2.)
   const totalDuration = Date.now() - startTotal
   console.log(`[Orchestrator] Multi-Agent Execution completed successfully in ${totalDuration}ms`)
 
@@ -1145,6 +1201,9 @@ export async function runMultiAgentOrchestrator(formData) {
       totalDurationMs: totalDuration,
       steps: state.executionLogs,
       profile: state.profileAnalysis
-    }
+    },
+    // Tell the frontend whether real AI produced this, or the LLM was
+    // unavailable (rate-limited / no key) and it fell back to sample data.
+    ai_status: getAiStatus(),
   }
 }

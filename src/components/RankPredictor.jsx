@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiUrl } from '../api'
+import { STATE_NAMES } from '../data/indiaLocations'
 
 export default function RankPredictor({ formData }) {
   // State for user rank input and config
@@ -252,10 +253,7 @@ export default function RankPredictor({ formData }) {
             className="w-full bg-indigo-950/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-saffron"
           >
             <option value="">Select State</option>
-            <option value="Karnataka">Karnataka</option>
-            <option value="Delhi">Delhi</option>
-            <option value="Maharashtra">Maharashtra</option>
-            <option value="Other">Other State</option>
+            {STATE_NAMES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
 

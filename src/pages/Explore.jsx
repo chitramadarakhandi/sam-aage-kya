@@ -574,6 +574,20 @@ export default function Explore() {
         {/* ── RESULTS ── */}
         {phase === 'results' && result && (
           <div className="space-y-5 animate-fade-in">
+            {/* AI busy banner — the course facts are still 100% real (from our
+                dataset); only the written explanations use AI. */}
+            {result.ai_status && result.ai_status.available === false && (
+              <div className="flex items-start gap-3 rounded-2xl px-5 py-4 bg-amber-500/10 border border-amber-500/30">
+                <span className="text-xl flex-shrink-0">⚡</span>
+                <div>
+                  <p className="text-amber-300 text-sm font-semibold">AI explanations are limited right now — the course data below is still fully accurate.</p>
+                  <p className="text-amber-200/70 text-xs mt-0.5">
+                    Every course, exam and college shown comes from our verified dataset. Only the friendly write-ups use AI, which is briefly rate-limited.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Discovery highlight — the app's core value */}
             {result.discovery && result.discovery.new_fields_count > 0 && (
               <div className="rounded-2xl p-5 text-center animate-slide-up"

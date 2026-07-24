@@ -641,6 +641,26 @@ export default function Result() {
         {status === 'success' && result && (
           <div className="space-y-6">
 
+            {/* AI busy banner — honest signal when the LLM quota is exhausted
+                and results fell back to sample/template data. */}
+            {result.ai_status && result.ai_status.available === false && (
+              <div className="flex items-start gap-3 rounded-2xl px-5 py-4 bg-amber-500/10 border border-amber-500/30">
+                <span className="text-xl flex-shrink-0">⚡</span>
+                <div>
+                  <p className="text-amber-300 text-sm font-semibold">
+                    {result.ai_status.reason === 'no_key'
+                      ? 'AI is not configured — showing sample guidance.'
+                      : 'Our AI is busy right now — showing sample guidance.'}
+                  </p>
+                  <p className="text-amber-200/70 text-xs mt-0.5">
+                    {result.ai_status.reason === 'no_key'
+                      ? 'Add an AI API key on the server to get personalised results.'
+                      : `The daily AI limit was reached. Personalised results resume in about ${Math.max(1, Math.round((result.ai_status.retryAfterSeconds || 0) / 60))} min — tap Regenerate then.`}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Save results nudge for guests */}
             {!session && (
               <SaveResultsBanner onSave={() => setAuthOpen(true)} />

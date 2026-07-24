@@ -3,18 +3,21 @@ import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 
 const EXAMS = [
-  { id: 'kcet', name: 'KCET', icon: '🎯', color: 'from-orange-500/20 to-amber-500/10 border-orange-500/20', desc: 'Karnataka Common Entrance Test', stream: 'Science (PCM)' },
-  { id: 'jee_main', name: 'JEE Main', icon: '⚡', color: 'from-blue-500/20 to-indigo-500/10 border-blue-500/20', desc: 'Joint Entrance Examination Main', stream: 'Science (PCM)' },
-  { id: 'jee_advanced', name: 'JEE Advanced', icon: '🏆', color: 'from-purple-500/20 to-violet-500/10 border-purple-500/20', desc: 'For IIT Admissions', stream: 'Science (PCM)' },
-  { id: 'neet', name: 'NEET', icon: '🩺', color: 'from-emerald-500/20 to-green-500/10 border-emerald-500/20', desc: 'National Eligibility cum Entrance Test', stream: 'Science (PCB)' },
-  { id: 'comedk', name: 'COMEDK', icon: '🎓', color: 'from-cyan-500/20 to-teal-500/10 border-cyan-500/20', desc: 'Consortium of Medical Engineering & Dental Colleges Karnataka', stream: 'Science (PCM)' },
-  { id: 'cuet', name: 'CUET', icon: '📚', color: 'from-rose-500/20 to-pink-500/10 border-rose-500/20', desc: 'Common University Entrance Test', stream: 'All' },
-  { id: 'clat', name: 'CLAT', icon: '⚖️', color: 'from-amber-500/20 to-yellow-500/10 border-amber-500/20', desc: 'Common Law Admission Test', stream: 'Arts / Design / Law' },
-  { id: 'uceed', name: 'UCEED', icon: '🎨', color: 'from-pink-500/20 to-rose-500/10 border-pink-500/20', desc: 'Undergraduate Common Entrance Examination for Design', stream: 'Arts / Design / Law' },
-  { id: 'bitsat', name: 'BITSAT', icon: '🚀', color: 'from-teal-500/20 to-cyan-500/10 border-teal-500/20', desc: 'BITS Admission Test', stream: 'Science (PCM)' },
-  { id: 'ipmat', name: 'IPMAT', icon: '💼', color: 'from-indigo-500/20 to-blue-500/10 border-indigo-500/20', desc: 'Integrated Program in Management Aptitude Test', stream: 'Commerce' },
-  { id: 'ca_foundation', name: 'CA Foundation', icon: '📊', color: 'from-yellow-500/20 to-orange-500/10 border-yellow-500/20', desc: 'Chartered Accountancy Entry Exam', stream: 'Commerce' },
-  { id: 'iata', name: 'IISER Aptitude Test (IAT)', icon: '🔬', color: 'from-green-500/20 to-emerald-500/10 border-green-500/20', desc: 'For BS-MS Dual Degrees at IISERs', stream: 'Science (PCM)' },
+  // National exams first (relevant to students in every state)
+  { id: 'jee_main', name: 'JEE Main', icon: '⚡', color: 'from-blue-500/20 to-indigo-500/10 border-blue-500/20', desc: 'Joint Entrance Examination Main — NITs, IIITs, GFTIs (all-India)', stream: 'Science (PCM)' },
+  { id: 'jee_advanced', name: 'JEE Advanced', icon: '🏆', color: 'from-purple-500/20 to-violet-500/10 border-purple-500/20', desc: 'For IIT Admissions (all-India)', stream: 'Science (PCM)' },
+  { id: 'neet', name: 'NEET', icon: '🩺', color: 'from-emerald-500/20 to-green-500/10 border-emerald-500/20', desc: 'National Eligibility cum Entrance Test — MBBS/BDS (all-India)', stream: 'Science (PCB)' },
+  { id: 'cuet', name: 'CUET', icon: '📚', color: 'from-rose-500/20 to-pink-500/10 border-rose-500/20', desc: 'Common University Entrance Test — DU, BHU & state universities', stream: 'All' },
+  { id: 'clat', name: 'CLAT', icon: '⚖️', color: 'from-amber-500/20 to-yellow-500/10 border-amber-500/20', desc: 'Common Law Admission Test — National Law Universities', stream: 'Arts / Design / Law' },
+  { id: 'uceed', name: 'UCEED / NID', icon: '🎨', color: 'from-pink-500/20 to-rose-500/10 border-pink-500/20', desc: 'Design entrance for IITs & NIDs (all-India)', stream: 'Arts / Design / Law' },
+  { id: 'bitsat', name: 'BITSAT', icon: '🚀', color: 'from-teal-500/20 to-cyan-500/10 border-teal-500/20', desc: 'BITS Pilani Admission Test (all-India)', stream: 'Science (PCM)' },
+  { id: 'ipmat', name: 'IPMAT', icon: '💼', color: 'from-indigo-500/20 to-blue-500/10 border-indigo-500/20', desc: 'Integrated MBA at IIM Indore/Rohtak (all-India)', stream: 'Commerce' },
+  { id: 'ca_foundation', name: 'CA Foundation', icon: '📊', color: 'from-yellow-500/20 to-orange-500/10 border-yellow-500/20', desc: 'Chartered Accountancy Entry Exam (all-India)', stream: 'Commerce' },
+  { id: 'iata', name: 'IISER Aptitude Test (IAT)', icon: '🔬', color: 'from-green-500/20 to-emerald-500/10 border-green-500/20', desc: 'For BS-MS Dual Degrees at IISERs (all-India)', stream: 'Science (PCM)' },
+  // State engineering CETs — every major state has one
+  { id: 'state_cet', name: 'State CETs', icon: '🗺️', color: 'from-slate-500/20 to-gray-500/10 border-slate-500/20', desc: 'Your state engineering CET — MHT-CET (MH), AP/TS EAMCET, WBJEE, KEAM (KL), UPCET, etc.', stream: 'Science (PCM)' },
+  { id: 'kcet', name: 'KCET', icon: '🎯', color: 'from-orange-500/20 to-amber-500/10 border-orange-500/20', desc: 'Karnataka Common Entrance Test (Karnataka students)', stream: 'Science (PCM)' },
+  { id: 'comedk', name: 'COMEDK', icon: '🎓', color: 'from-cyan-500/20 to-teal-500/10 border-cyan-500/20', desc: 'Karnataka private engineering/medical colleges', stream: 'Science (PCM)' },
 ]
 
 // Mock counselling data
