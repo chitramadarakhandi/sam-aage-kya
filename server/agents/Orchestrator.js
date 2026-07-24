@@ -10,24 +10,27 @@ const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, su
 
 // Unified LLM Client matching index.js's implementation
 class UnifiedAIClient {
-  constructor() {
-    this.groqApiKey = process.env.GROQ_API_KEY
-    this.openaiApiKey = process.env.OPENAI_API_KEY
-  }
-
+  // NOTE: Read API keys lazily on each call (NOT in the constructor).
+  // This module is imported by index.js BEFORE dotenv.config() runs, so reading
+  // env vars at construction time captures stale/empty values and can wrongly
+  // fall back to a stray OPENAI_API_KEY. Reading them per-call guarantees the
+  // .env values (GROQ_API_KEY) are available.
   async getCompletion({ model, messages, temperature, max_tokens, response_format }) {
+    const groqApiKey = process.env.GROQ_API_KEY
+    const openaiApiKey = process.env.OPENAI_API_KEY
+
     let url, headers, bodyModel
-    if (this.groqApiKey) {
+    if (groqApiKey) {
       url = 'https://api.groq.com/openai/v1/chat/completions'
       headers = {
-        'Authorization': `Bearer ${this.groqApiKey}`,
+        'Authorization': `Bearer ${groqApiKey}`,
         'Content-Type': 'application/json'
       }
-      bodyModel = model || 'llama-3.3-70b-versatile'
-    } else if (this.openaiApiKey) {
+      bodyModel = model || process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+    } else if (openaiApiKey) {
       url = 'https://api.openai.com/v1/chat/completions'
       headers = {
-        'Authorization': `Bearer ${this.openaiApiKey}`,
+        'Authorization': `Bearer ${openaiApiKey}`,
         'Content-Type': 'application/json'
       }
       bodyModel = 'gpt-4o-mini'
@@ -308,12 +311,30 @@ export async function runCareerRecommendationAgent(state) {
   const form = state.formData
   const profileAnalysis = state.profileAnalysis
   try {
+    const isClass10 = form.classLevel === 'class10'
+    const classLevelInstruction = isClass10
+      ? `
+    ⚠️ THIS STUDENT IS IN CLASS 10 (choosing what to study in Class 11 & 12).
+    You MUST recommend STREAM CHOICES for 11th/12th — NOT college degrees.
+    Valid "path" values are streams such as: "Science (PCM)", "Science (PCB)",
+    "Science (PCMB)", "Commerce with Maths", "Commerce without Maths",
+    "Arts / Humanities". Do NOT recommend B.Tech, BCA, MBBS, diplomas, or any
+    college course — those come after Class 12. For each recommended stream,
+    explain which future careers it opens up, based on the student's interests.
+    - "requires_entrance_exam" should be "None (stream selection, not entrance-based)".
+    - "backup_plan" should describe switching to another stream if this one is too hard.`
+      : `
+    THIS STUDENT IS IN CLASS 12 (choosing a college course/career after 12th).
+    Recommend specific college courses / career tracks (e.g. B.Tech Computer
+    Science, B.Sc Biotechnology, CA, B.Des), matching their stream "${form.stream}".`
+
     const prompt = `
     You are the Career Recommendation Agent. Recommends the best career paths and courses matching this profile.
     Profile Analysis: ${JSON.stringify(profileAnalysis)}
     Student Interests: ${form.interests}
-    Student Stream: ${form.stream}
+    Student Stream: ${form.stream || (isClass10 ? 'Not yet chosen (Class 10)' : 'Not specified')}
     Class Level: ${form.classLevel}
+    ${classLevelInstruction}
 
     INTEREST INTERPRETATION GUIDELINE:
     If a student enters design or visual/creative interests like 'poster', 'posters', 'designing', or 'sketching':
@@ -321,18 +342,18 @@ export async function runCareerRecommendationAgent(state) {
     - Do NOT recommend traditional fine arts (BFA in Painting, Sculpture, etc.) or music/songs/performing arts unless the student explicitly mentions performing arts, singing, or music.
     - If they have a Science stream, B.Des, B.Arch, or tech-design fields (like UI/UX) are excellent options.
 
-    Recommend 2-3 specific career tracks.
+    Recommend 2-3 ${isClass10 ? 'stream options for Class 11/12' : 'specific career tracks'}.
     Respond ONLY with a JSON object in this format:
     {
       "recommendations": [
         {
-          "path_id": "short_kebab_slug (e.g. btech_cs, mbbs_medicine, ca_finance, bsc_biotech). MUST be unique per path and <= 20 chars, lowercase letters and underscores only.",
-          "path": "Career/Course name (e.g. B.Tech Computer Science, B.Sc Biotechnology)",
+          "path_id": "short_kebab_slug (${isClass10 ? 'e.g. science_pcm, commerce_maths, arts_humanities' : 'e.g. btech_cs, mbbs_medicine, ca_finance, bsc_biotech'}). MUST be unique per path and <= 20 chars, lowercase letters and underscores only.",
+          "path": "${isClass10 ? 'Stream name (e.g. Science (PCM), Commerce with Maths, Arts / Humanities)' : 'Career/Course name (e.g. B.Tech Computer Science, B.Sc Biotechnology)'}",
           "honest_take": "Brutally honest 2-sentence advice about difficulty, competition, and suitability.",
-          "requires_entrance_exam": "Specific exam name or None",
-          "opens_doors_to": ["Job role 1", "Job role 2"],
-          "watch_out_for": "Main pitfall or drawback of this path",
-          "backup_plan": "Specific backup plan if entrance fails"
+          "requires_entrance_exam": "${isClass10 ? 'None (stream selection, not entrance-based)' : 'Specific exam name or None'}",
+          "opens_doors_to": ["${isClass10 ? 'Future career this stream enables' : 'Job role 1'}", "${isClass10 ? 'Another future career' : 'Job role 2'}"],
+          "watch_out_for": "Main pitfall or drawback of this ${isClass10 ? 'stream' : 'path'}",
+          "backup_plan": "${isClass10 ? 'Which stream to switch to if this is too hard' : 'Specific backup plan if entrance fails'}"
         }
       ]
     }

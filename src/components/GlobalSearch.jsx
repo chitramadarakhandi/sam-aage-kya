@@ -103,7 +103,7 @@ export default function GlobalSearch({ isOpen, onClose }) {
                 <p className="text-[10px] uppercase tracking-widest font-bold text-gray-600">Quick Access</p>
               </div>
             )}
-            {filtered.length > 0 ? filtered.map((item, i) => (
+            {filtered.length > 0 ? filtered.map((item) => (
               <button
                 key={item.id}
                 onClick={() => handleSelect(item)}

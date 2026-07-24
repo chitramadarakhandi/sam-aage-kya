@@ -6,6 +6,7 @@ import CourseReality from '../components/CourseReality'
 import ExamDetails from '../components/ExamDetails'
 import CourseOverlayPanel from '../components/CourseOverlayPanel'
 import CollegeDetailCard from '../components/CollegeDetailCard'
+import RankPredictor from '../components/RankPredictor'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -436,7 +437,6 @@ function MentorTeaserBox({ mentor }) {
   if (!mentor) return null
 
   // Ensure matching styling tags / colors
-  const gradient = mentor.gradient || 'from-blue-500/30 to-blue-600/10'
   const border = mentor.border || 'border-blue-500/25'
   const initialsBg = mentor.initials_bg || 'bg-blue-500/20 text-blue-300'
 
@@ -481,7 +481,6 @@ export default function Result() {
     const savedRaw = localStorage.getItem('aageKyaFormData')
     const rawForm  = state?.formData ?? (savedRaw ? JSON.parse(savedRaw) : null)
     return rawForm ? { ...rawForm, classLevel: rawForm.classLevel || classLevel } : null
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [classLevel, state?.formData])
 
 
@@ -584,7 +583,9 @@ export default function Result() {
         body: JSON.stringify({ label, formData, guidanceResult: result }),
       })
       setScenarioSaved(true)
-    } catch { }
+    } catch (err) {
+      console.error('Failed to save scenario:', err)
+    }
     finally { setScenarioSaving(false) }
   }
 
@@ -783,7 +784,7 @@ export default function Result() {
                       <span>Why This Fits Your Child</span>
                     </p>
                     <p className="text-gray-300 text-sm leading-relaxed">
-                      This recommendation directly aligns with their subject interest in <strong className="text-white">"{formData?.interests}"</strong> and matches their academic performance of <strong className="text-white">{formData?.marks}%</strong>.
+                      This recommendation directly aligns with their subject interest in <strong className="text-white">&ldquo;{formData?.interests}&rdquo;</strong> and matches their academic performance of <strong className="text-white">{formData?.marks}%</strong>.
                     </p>
                   </div>
                 )}
@@ -813,6 +814,13 @@ export default function Result() {
             {classLevel === 'class12' && (
               <div className="pt-2">
                 <ExamDetails stream={formData?.stream} />
+              </div>
+            )}
+
+            {/* 3.55 — Historical Cutoff Comparison / Rank Predictor (Class 12 only) */}
+            {classLevel === 'class12' && (
+              <div className="pt-2">
+                <RankPredictor formData={formData} />
               </div>
             )}
 

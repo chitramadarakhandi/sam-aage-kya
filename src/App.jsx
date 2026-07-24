@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom'
-import { useEffect, useState, lazy, Suspense } from 'react'
+import { useEffect, useState } from 'react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
@@ -26,6 +26,7 @@ import CareerPipeline from './pages/CareerPipeline'
 import Scholarships from './pages/Scholarships'
 import CollegeOverview from './pages/CollegeOverview'
 import MentorApplication from './pages/MentorApplication'
+import Explore from './pages/Explore'
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { user, profile, loading } = useAuth()
@@ -93,6 +94,7 @@ function AnimatedRoutes() {
         <Route path="/admin-dashboard"   element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
         
         {/* Public Routes */}
+        <Route path="/explore"           element={<Explore />} />
         <Route path="/mentors"           element={<Mentors />} />
         <Route path="/official-readiness" element={<OfficialReadiness />} />
         <Route path="/qa"                element={<QABoard />} />

@@ -14,10 +14,9 @@ export default function AdminDashboard() {
   const [errorMsg, setErrorMsg] = useState('')
   const [userSearch, setUserSearch] = useState('')
 
-  // Double check client side role protection
-  if (!profile || profile.role !== 'admin') {
-    return <Navigate to="/dashboard" replace />
-  }
+  // Client-side role protection. Computed here but enforced at render time
+  // (below), so all hooks still run unconditionally in the same order.
+  const isAdmin = profile && profile.role === 'admin'
 
   const fetchAllData = async () => {
     setLoading(true)
@@ -49,8 +48,14 @@ export default function AdminDashboard() {
   }
 
   useEffect(() => {
-    fetchAllData()
-  }, [session])
+    if (isAdmin) fetchAllData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, isAdmin])
+
+  // Enforce role protection after hooks have run.
+  if (!isAdmin) {
+    return <Navigate to="/dashboard" replace />
+  }
 
   // ── Actions ──────────────────────────────────────────────────
   const handleApproveMentor = async (id) => {

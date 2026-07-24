@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useLocation, Link, useParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import {
@@ -41,11 +41,14 @@ export default function Roadmap() {
   const { classLevel = 'class12' } = useParams()
   const { state } = useLocation()
   
-  // Try reading from Router state; fallback to localStorage
-  const savedFormRaw = localStorage.getItem('aageKyaFormData')
-  const rawForm = state?.formData ?? (savedFormRaw ? JSON.parse(savedFormRaw) : null)
-  const formData = rawForm ? { ...rawForm, classLevel: rawForm.classLevel || classLevel } : null
-  
+  // Try reading from Router state; fallback to localStorage.
+  // Memoised so it doesn't create a new object every render (keeps useCallback stable).
+  const formData = useMemo(() => {
+    const savedFormRaw = localStorage.getItem('aageKyaFormData')
+    const rawForm = state?.formData ?? (savedFormRaw ? JSON.parse(savedFormRaw) : null)
+    return rawForm ? { ...rawForm, classLevel: rawForm.classLevel || classLevel } : null
+  }, [state?.formData, classLevel])
+
   const selectedOption = state?.option
 
   const [session, setSession] = useState(null)

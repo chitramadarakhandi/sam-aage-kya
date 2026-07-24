@@ -25,6 +25,7 @@ export default function RankPredictor({ formData }) {
   const [simCourse, setSimCourse] = useState('')
   const [availableColleges, setAvailableColleges] = useState([])
   const [availableCourses, setAvailableCourses] = useState([])
+  const [collegeCourses, setCollegeCourses] = useState({})
   const [simulationResult, setSimulationResult] = useState(null)
   const [simLoading, setSimLoading] = useState(false)
 
@@ -52,8 +53,7 @@ export default function RankPredictor({ formData }) {
         const data = await res.json()
         if (active) {
           setAvailableColleges(data.colleges || [])
-          // Store all options globally to filter courses dynamically
-          window._allPredictorOptions = data
+          setCollegeCourses(data.collegeCourses || {})
         }
       } catch (err) {
         console.error('Error fetching options:', err)
@@ -63,37 +63,18 @@ export default function RankPredictor({ formData }) {
     return () => { active = false }
   }, [exam])
 
-  // Update courses dropdown when selected college changes in simulator
+  // Update courses dropdown when selected college changes in simulator.
+  // Uses the collegeCourses map fetched in the options request (no extra call).
   useEffect(() => {
     if (!simCollege) {
       setAvailableCourses([])
       setSimCourse('')
       return
     }
-
-    const fetchCourses = async () => {
-      try {
-        // Query options backend to get courses for this college
-        // We'll search in our window store first for instant load, or query a filtered api
-        const fallbackOptions = window._allPredictorOptions;
-        if (fallbackOptions) {
-          // In a simple system, unique courses can be queried or we fetch from mock local cutoffs
-          // Let's call simulate api or a courses subquery. Since we can also just get courses from the server:
-          const res = await fetch(apiUrl(`/api/predictor/predict?exam=${exam}&rank=999999&category=${category}`))
-          if (res.ok) {
-            const data = await res.json()
-            const filtered = data.results
-              .filter(r => r.college_name === simCollege)
-              .map(r => r.course)
-            setAvailableCourses([...new Set(filtered)])
-          }
-        }
-      } catch (err) {
-        console.error('Error updating courses list:', err)
-      }
-    }
-    fetchCourses()
-  }, [simCollege, exam, category])
+    const courses = collegeCourses[simCollege] || []
+    setAvailableCourses(courses)
+    setSimCourse('')
+  }, [simCollege, collegeCourses])
 
   // Handle Predictor query (Reverse Finder)
   const handlePredict = async (e) => {

@@ -77,7 +77,7 @@ function OutcomeChart({ outcomes }) {
 
 // ─── Student feedback section ─────────────────────────────────────────────────
 
-function StudentFeedback({ streamKey }) {
+function _StudentFeedback({ streamKey }) {
   const [feedback, setFeedback] = useState([])
   const [loading, setLoading] = useState(true)
 

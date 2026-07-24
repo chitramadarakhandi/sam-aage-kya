@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 
 const TABS = [
   { id: 'apaar',    icon: '🪪', label: 'APAAR ID' },
@@ -32,7 +32,7 @@ function useChecklist(prefix, items) {
   return { checked, toggle, done, total: items.length }
 }
 
-function CheckItem({ id, text, note, checked, onChange }) {
+function CheckItem({ id: _id, text, note, checked, onChange }) {
   return (
     <label
       className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all group

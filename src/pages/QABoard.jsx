@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const API = 'http://localhost:5000'
@@ -111,7 +110,7 @@ function AskForm({ session, onPosted }) {
 }
 
 export default function QABoard() {
-  const { user, session, loading: authLoading } = useAuth()
+  const { session, loading: authLoading } = useAuth()
 
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)

@@ -320,6 +320,7 @@ export default function CareerPipeline() {
   const [activeStageIdx, setActiveStageIdx] = useState(0)
 
   // Profile-based state
+  // eslint-disable-next-line no-unused-vars
   const [profile, setProfile] = useState(() => {
     try {
       const data = localStorage.getItem('aageKyaFormData')

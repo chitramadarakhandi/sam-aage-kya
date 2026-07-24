@@ -5,6 +5,15 @@
  */
 const BASE_URL = import.meta.env.VITE_API_URL || ''
 
+/**
+ * Build a full API URL from a path.
+ * In dev, BASE_URL is empty and the Vite proxy forwards /api/* to localhost:5000.
+ * In production, BASE_URL points to the deployed backend.
+ */
+export function apiUrl(path) {
+  return `${BASE_URL}${path}`
+}
+
 async function apiFetch(path, options = {}) {
   const url = `${BASE_URL}${path}`
   const res = await fetch(url, {
@@ -58,5 +67,25 @@ export async function postTranscribe(audio, mimeType, authToken) {
     method: 'POST',
     headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
     body: JSON.stringify({ audio, mimeType }),
+  })
+}
+
+// ─── Pathway Advisor (adaptive discovery flow) ────────────────────────────────
+
+export async function getPathwayStartQuestions() {
+  return apiFetch('/api/pathways/questions/start')
+}
+
+export async function postPathwayNextQuestions(answers) {
+  return apiFetch('/api/pathways/questions/next', {
+    method: 'POST',
+    body: JSON.stringify({ answers }),
+  })
+}
+
+export async function postPathwayRecommend(formData, answers, useJudge = false) {
+  return apiFetch('/api/pathways/recommend', {
+    method: 'POST',
+    body: JSON.stringify({ formData, answers, useJudge }),
   })
 }

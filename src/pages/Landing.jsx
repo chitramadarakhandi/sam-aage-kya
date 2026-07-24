@@ -385,7 +385,7 @@ export default function Landing() {
             {/* Connecting line (desktop) */}
             <div className="hidden md:block absolute top-10 left-1/6 right-1/6 h-px bg-gradient-to-r from-saffron/30 via-saffron/60 to-saffron/30 z-0" />
 
-            {steps.map((step, i) => (
+            {steps.map((step) => (
               <div
                 key={step.step}
                 className="relative glass-card p-8 text-center group hover:scale-[1.02] transition-all duration-300 z-10"

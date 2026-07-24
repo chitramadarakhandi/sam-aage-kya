@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import PrivacyConsentModal, { useConsent } from '../components/PrivacyConsentModal'
-import CourseReality from '../components/CourseReality'
 import { STREAM_VALUES } from '../config/streams'
 
 // ─── Data ─────────────────────────────────────────────────────────────────────

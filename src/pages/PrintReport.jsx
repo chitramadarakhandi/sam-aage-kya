@@ -6,7 +6,6 @@ import { useAuth } from '../context/AuthContext'
 // ─── Summary-mode report ──────────────────────────────────────────────────────
 
 function SummaryReport({ guidance, profile, printDate }) {
-  const paths = (guidance?.options || []).map(o => o.path).join(', ')
   const allCareers = [...new Set((guidance?.options || []).flatMap(o => o.opens_doors_to || []))]
 
   return (
@@ -443,6 +442,7 @@ export default function PrintReport() {
       }
     }
     load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, profile, classLevel, activeProfile?.stream])
 
   // Auto trigger print dialog on load once content is loaded

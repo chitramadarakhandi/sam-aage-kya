@@ -4,6 +4,14 @@ import dotenv from 'dotenv'
 import Groq from 'groq-sdk'
 import { createClient } from '@supabase/supabase-js'
 import { runMultiAgentOrchestrator } from './agents/Orchestrator.js'
+import { HISTORICAL_CUTOFFS } from './cutoffsData.js'
+import { recommendPathways } from './ai/pathwayAdvisor.js'
+import {
+  QUESTION_BANK,
+  DOMAINS,
+  scoreDomains,
+  pickFollowUpQuestions,
+} from './data/indiaPathways.js'
 
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -130,17 +138,42 @@ const transcribeLimiter  = createRateLimiter(15, 3600000, "You have exceeded the
 const PORT = process.env.PORT || 5000
 
 // Initialize Supabase Client (anon key — for auth token validation)
-const supabaseUrl = process.env.SUPABASE_URL || 'your-supabase-url'
+// Use a syntactically valid placeholder URL so createClient() never throws at
+// startup when Supabase isn't configured. isSupabaseConfigured() still treats
+// the placeholder as "not configured", so DB-backed features degrade gracefully
+// instead of crashing the whole server.
+const supabaseUrl = process.env.SUPABASE_URL || 'https://your-project-ref.supabase.co'
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || 'your-supabase-anon-key'
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-// Admin Supabase client (service role key — bypasses RLS for aggregate queries)
-// SUPABASE_SERVICE_ROLE_KEY is optional; analytics endpoint will be disabled without it.
-const supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
-  ? createClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { persistSession: false },
-    })
-  : null
+let supabase = null
+let supabaseAdmin = null
+try {
+  supabase = createClient(supabaseUrl, supabaseAnonKey)
+  // Admin Supabase client (service role key — bypasses RLS for aggregate queries)
+  // SUPABASE_SERVICE_ROLE_KEY is optional; analytics endpoint disabled without it.
+  supabaseAdmin = process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? createClient(supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+        auth: { persistSession: false },
+      })
+    : null
+} catch (err) {
+  console.warn(`[startup] Supabase client not initialized: ${err.message}. DB-backed features will be disabled.`)
+}
+
+// Server-authored rows (guidance_results, roadmaps) are written with the
+// service-role admin client — NEVER the user's bearer-scoped client — so a
+// student token can never forge or tamper with AI-authored guidance. Falls
+// back to the anon client only when no service role key is configured (dev).
+const guidanceWriter = () => supabaseAdmin || supabase
+
+// Consistent error for datastore failures so callers can fail loudly instead
+// of silently swallowing DB errors.
+function datastoreError(context, cause) {
+  const err = new Error(`${context} failed: ${cause?.message || 'unknown datastore error'}`)
+  err.code = 'DATASTORE_ERROR'
+  err.cause = cause
+  return err
+}
 
 class UnifiedAIClient {
   constructor() {
@@ -1106,6 +1139,204 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' })
 })
 
+// ─── Rank Predictor (Historical Cutoff Comparison) ───────────────────────────
+// Data source: server/cutoffsData.js (HISTORICAL_CUTOFFS)
+// These endpoints power src/components/RankPredictor.jsx.
+// NOTE: Labels compare a rank against the latest stored closing rank. They are
+// historical comparisons, NOT calibrated admission probabilities.
+
+// Default category per exam, used as a fallback when the requested category
+// has no rows for a given college/course.
+const DEFAULT_CATEGORY = { KCET: 'GM', JEE: 'General', NEET: 'General' }
+
+// Group flat cutoff rows into { college_name, course, trends: [{year, closing_rank}] }
+// filtered by exam + category (with graceful fallback to the exam default category).
+function buildCutoffGroups(exam, category) {
+  const examRows = HISTORICAL_CUTOFFS.filter(
+    (r) => r.exam === (exam || '').toUpperCase()
+  )
+  const fallbackCategory = DEFAULT_CATEGORY[(exam || '').toUpperCase()] || 'General'
+
+  const groups = new Map()
+  for (const row of examRows) {
+    const key = `${row.college_name}||${row.course}`
+    if (!groups.has(key)) {
+      groups.set(key, {
+        college_name: row.college_name,
+        course: row.course,
+        rowsByCategory: {},
+      })
+    }
+    const g = groups.get(key)
+    if (!g.rowsByCategory[row.category]) g.rowsByCategory[row.category] = []
+    g.rowsByCategory[row.category].push(row)
+  }
+
+  const result = []
+  for (const g of groups.values()) {
+    // Pick requested category, else fall back to the exam default.
+    let rows = g.rowsByCategory[category]
+    if (!rows || rows.length === 0) rows = g.rowsByCategory[fallbackCategory]
+    if (!rows || rows.length === 0) continue
+
+    const trends = rows
+      .map((r) => ({ year: r.year, closing_rank: r.closing_rank }))
+      .sort((a, b) => a.year - b.year)
+
+    result.push({
+      college_name: g.college_name,
+      course: g.course,
+      trends,
+      latest_closing_rank: trends[trends.length - 1].closing_rank,
+    })
+  }
+  return result
+}
+
+// Classify a rank against the latest closing rank (not a probability).
+function classifyLikelihood(rank, latestClosingRank) {
+  if (rank <= latestClosingRank * 0.8) return 'Well within latest cutoff'
+  if (rank <= latestClosingRank) return 'Within latest cutoff'
+  if (rank <= latestClosingRank * 1.15) return 'Near latest cutoff'
+  return 'Outside latest cutoff'
+}
+
+// GET /api/predictor/options?exam=JEE — unique colleges + courses-per-college
+// (for the simulator dropdowns)
+app.get('/api/predictor/options', (req, res) => {
+  const exam = (req.query.exam || 'JEE').toString().toUpperCase()
+  const rows = HISTORICAL_CUTOFFS.filter((r) => r.exam === exam)
+  const colleges = [...new Set(rows.map((r) => r.college_name))].sort()
+  const courses = [...new Set(rows.map((r) => r.course))].sort()
+
+  // Map each college to the courses it offers, so the frontend can populate the
+  // course dropdown instantly without an extra request.
+  const collegeCourses = {}
+  for (const r of rows) {
+    if (!collegeCourses[r.college_name]) collegeCourses[r.college_name] = new Set()
+    collegeCourses[r.college_name].add(r.course)
+  }
+  const collegeCoursesObj = {}
+  for (const [c, set] of Object.entries(collegeCourses)) {
+    collegeCoursesObj[c] = [...set].sort()
+  }
+
+  res.json({ exam, colleges, courses, collegeCourses: collegeCoursesObj })
+})
+
+// GET /api/predictor/predict?exam=JEE&rank=1500&category=General&state=...
+// Reverse finder — returns matching college/course options for a rank.
+app.get('/api/predictor/predict', (req, res) => {
+  const exam = (req.query.exam || 'JEE').toString().toUpperCase()
+  const category = (req.query.category || DEFAULT_CATEGORY[exam] || 'General').toString()
+  const rank = parseInt(req.query.rank, 10)
+
+  if (!rank || isNaN(rank) || rank < 1) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'A valid positive rank is required.' })
+  }
+
+  const groups = buildCutoffGroups(exam, category)
+
+  // Keep options that are realistically relevant to this rank (within ~2x the
+  // latest closing rank), so the list stays meaningful instead of dumping every
+  // college. Sort best-fit (lowest closing rank) first.
+  const results = groups
+    .filter((g) => rank <= g.latest_closing_rank * 2)
+    .sort((a, b) => a.latest_closing_rank - b.latest_closing_rank)
+    .map((g) => ({
+      college_name: g.college_name,
+      course: g.course,
+      trends: g.trends,
+      likelihood: classifyLikelihood(rank, g.latest_closing_rank),
+    }))
+
+  res.json({ exam, category, rank, results })
+})
+
+// GET /api/predictor/simulate?college=..&course=..&exam=..&rank=..&category=..
+// Compare a single college/course option against the user's rank.
+app.get('/api/predictor/simulate', (req, res) => {
+  const exam = (req.query.exam || 'JEE').toString().toUpperCase()
+  const category = (req.query.category || DEFAULT_CATEGORY[exam] || 'General').toString()
+  const rank = parseInt(req.query.rank, 10)
+  const college = (req.query.college || '').toString()
+  const course = (req.query.course || '').toString()
+
+  if (!rank || isNaN(rank) || rank < 1) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'A valid positive rank is required.' })
+  }
+  if (!college || !course) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'college and course are required.' })
+  }
+
+  const groups = buildCutoffGroups(exam, category)
+  const match = groups.find(
+    (g) => g.college_name === college && g.course === course
+  )
+
+  if (!match) {
+    return res.status(404).json({ error: 'NOT_FOUND', message: 'No historical data for that college/course combination.' })
+  }
+
+  res.json({
+    college: match.college_name,
+    course: match.course,
+    trends: match.trends,
+    likelihood: classifyLikelihood(rank, match.latest_closing_rank),
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  PATHWAY ADVISOR — adaptive questionnaire + anti-hallucination recommender
+//  Powers the "I don't know what to pick" discovery flow (all-India, all domains)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// GET /api/pathways/questions/start — the first (broad) round of yes/no questions
+app.get('/api/pathways/questions/start', (req, res) => {
+  res.json({
+    stage: 'broad',
+    instructions: 'Answer Yes / No / Not sure. There are no wrong answers.',
+    domains: DOMAINS,
+    questions: QUESTION_BANK.broad.map((q) => ({ id: q.id, text: q.text })),
+  })
+})
+
+// POST /api/pathways/questions/next — given broad answers, return focused follow-ups
+// body: { answers: [{ questionId, answer }] }
+app.post('/api/pathways/questions/next', (req, res) => {
+  const answers = Array.isArray(req.body.answers) ? req.body.answers : []
+  if (answers.length === 0) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'answers array required' })
+  }
+  const { ranked } = scoreDomains(answers)
+  const followUps = pickFollowUpQuestions(ranked, 4)
+  res.json({
+    stage: 'focused',
+    topDomains: ranked.slice(0, 5),
+    questions: followUps.map((q) => ({ id: q.id, text: q.text })),
+    done: followUps.length === 0,
+  })
+})
+
+// POST /api/pathways/recommend — full agentic recommendation (retrieve→LLM→verify)
+// body: { formData: {...}, answers: [{ questionId, answer }] }
+const pathwayLimiter = createRateLimiter(30, 3600000, 'Too many recommendation requests. Please wait a bit.')
+app.post('/api/pathways/recommend', pathwayLimiter, async (req, res) => {
+  try {
+    const formData = req.body.formData || {}
+    const answers = Array.isArray(req.body.answers) ? req.body.answers : []
+    const useJudge = req.body.useJudge === true // optional decoupled LLM fact-check
+    const result = await recommendPathways(formData, answers, { useJudge })
+    res.json(result)
+  } catch (err) {
+    console.error('[PathwayAdvisor] error:', err.message)
+    if (err.message === 'NO_API_KEY') {
+      return res.status(401).json({ error: 'NO_API_KEY', message: 'AI key missing' })
+    }
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
+  }
+})
+
 const validateGuidanceBody = (req, res, next) => {
   if (!req.body.formData) {
     return res.status(400).json({ error: 'BAD_REQUEST', message: 'Missing formData' })
@@ -1124,22 +1355,42 @@ app.post('/api/guidance', validateGuidanceBody, guidanceLimiter, async (req, res
 
     if (user) {
       const client = getSupabaseClient(authHeader)
-      // Check if guidance results are already cached in DB
-      const { data: cached } = await client
-        .from('guidance_results')
+
+      // Fetch the stored student profile so we can tell whether the incoming
+      // answers still match what generated the cached guidance.
+      const { data: storedStudent } = await client
+        .from('students')
         .select('*')
-        .eq('student_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
+        .eq('id', user.id)
         .maybeSingle()
+
+      // Only reuse cached guidance if the student's key answers are unchanged.
+      // Otherwise the user re-did onboarding with new answers and expects fresh
+      // guidance (this was the "results ignore my new query" bug).
+      const answersUnchanged = storedStudent && (
+        (storedStudent.stream || '') === (formData.stream || '') &&
+        Number(storedStudent.marks || 0) === (Number(formData.marks) || 0) &&
+        (storedStudent.interests || '') === (formData.interests || '') &&
+        (storedStudent.class_level || 'class12') === (formData.classLevel || 'class12') &&
+        (storedStudent.state || '') === (formData.state || '') &&
+        (storedStudent.income_range || '') === (formData.incomeRange || '')
+      )
+
+      // Check if guidance results are already cached in DB
+      const { data: cached, error: cacheError } = answersUnchanged
+        ? await client
+            .from('guidance_results')
+            .select('*')
+            .eq('student_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+        : { data: null, error: null }
+      if (cacheError) throw datastoreError('Guidance cache lookup', cacheError)
 
       if (cached) {
         // Fetch matching scholarships for the student dynamically to show the list
-        const { data: student } = await client
-          .from('students')
-          .select('*')
-          .eq('id', user.id)
-          .maybeSingle()
+        const student = storedStudent
 
         let scholarships_list = []
         if (student) {
@@ -1209,8 +1460,10 @@ app.post('/api/guidance', validateGuidanceBody, guidanceLimiter, async (req, res
         updated_at: new Date().toISOString()
       })
 
-      // Save results
-      await client.from('guidance_results').insert({
+      // Save results using the service-role writer (server-authored rows must
+      // never be mutable by a student's bearer-scoped client).
+      const admin = guidanceWriter()
+      const { error: guidanceWriteError } = await admin.from('guidance_results').insert({
         student_id: user.id,
         summary: agentResult.summary,
         options: agentResult.options,
@@ -1221,6 +1474,7 @@ app.post('/api/guidance', validateGuidanceBody, guidanceLimiter, async (req, res
         confidence_reason: confidence.confidence_reason,
         scholarships_list: agentResult.scholarships_list
       })
+      if (guidanceWriteError) throw datastoreError('Guidance result write', guidanceWriteError)
       // Send guidance-ready email notification (fire-and-forget)
       sendEmail(
         user.email,
@@ -1547,13 +1801,15 @@ app.post('/api/sync', async (req, res) => {
       .maybeSingle()
 
     if (!existing) {
-      await client.from('guidance_results').insert({
+      const admin = guidanceWriter()
+      const { error: guidanceWriteError } = await admin.from('guidance_results').insert({
         student_id: user.id,
         summary: result.summary,
         options: result.options,
         scholarship_to_check: result.scholarship_to_check,
         one_thing_to_do_this_week: result.one_thing_to_do_this_week
       })
+      if (guidanceWriteError) throw datastoreError('Guidance result write', guidanceWriteError)
     }
 
     res.json({ success: true })
@@ -1682,11 +1938,15 @@ app.post('/api/re-onboard', async (req, res) => {
 
       if (updateErr) throw updateErr
 
-      // Delete current guidance results & roadmaps so user can re-generate a new cache
-      await Promise.all([
-        client.from('guidance_results').delete().eq('student_id', user.id),
-        client.from('roadmaps').delete().eq('student_id', user.id)
+      // Delete current guidance results & roadmaps so user can re-generate a new
+      // cache. Server-authored rows are removed via the service-role writer.
+      const admin = guidanceWriter()
+      const [{ error: guidanceDeleteError }, { error: roadmapDeleteError }] = await Promise.all([
+        admin.from('guidance_results').delete().eq('student_id', user.id),
+        admin.from('roadmaps').delete().eq('student_id', user.id)
       ])
+      if (guidanceDeleteError) throw datastoreError('Guidance result delete', guidanceDeleteError)
+      if (roadmapDeleteError) throw datastoreError('Roadmap delete', roadmapDeleteError)
     }
 
     res.json({ success: true })
@@ -2050,8 +2310,9 @@ Based on your child's profile, we have suggested career options that balance the
 3. **Backup Plan:** If admissions are highly competitive, the backup is to pursue ${firstBackup}. This ensures complete career security.`
     }
 
-    // Cache it back to guidance_results
-    await client.from('guidance_results').update({ parent_summary: parentSummaryText }).eq('id', guidanceResultId)
+    // Cache it back to guidance_results via the service-role writer.
+    const admin = guidanceWriter()
+    await admin.from('guidance_results').update({ parent_summary: parentSummaryText }).eq('id', guidanceResultId)
 
     res.json({ parent_summary: parentSummaryText, cached: false })
   } catch (err) {
