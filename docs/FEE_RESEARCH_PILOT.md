@@ -30,9 +30,11 @@ replacement rather than overwriting verified evidence.
 | NITK B.Tech hosteller, income ₹1-5 lakh | First academic year | ₹2,56,610 | ₹83,333 | ₹1,73,277 |
 | NITK B.Tech hosteller, SC/ST/PwD | First academic year | ₹2,56,610 | ₹1,25,000 | ₹1,31,610 |
 
-All totals are reconciled in `server/data/verifiedFeePilot.test.js`. Refundable
-deposits remain part of the initial cash requirement. Mess amounts are advances,
-not a guarantee of final consumption cost.
+These totals were previously reconciled in `server/data/verifiedFeePilot.test.js`;
+that pilot dataset and its reconciliation test were removed as dead code, so the
+figures above are now a record of the July 2026 review rather than an automated
+check. Refundable deposits remain part of the initial cash requirement. Mess
+amounts are advances, not a guarantee of final consumption cost.
 
 ## Deliberate limitations
 
@@ -48,6 +50,13 @@ not a guarantee of final consumption cost.
   university can revise a circular after this review date.
 
 ## API
+
+Not implemented as of 2026-07-26. None of the three routes below exists in
+`server/index.js`, and `src/pages/FeeExplorer.jsx` calls API helpers
+(`getVerifiedFeePlan`, `getVerifiedFeePlans`) that do not exist in `src/api.js`,
+so that page would throw at runtime. It is not routed in `src/App.jsx` and never
+was, so nothing currently reaches it; it is kept only as reference work. Treat
+this section as an interface proposal, not a description of behavior.
 
 - `GET /api/fees/pilot` returns comparison summaries and source metadata.
 - `GET /api/fees/pilot/:id` returns every component, aid item, source and limitation.

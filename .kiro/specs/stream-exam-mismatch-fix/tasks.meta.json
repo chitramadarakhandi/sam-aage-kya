@@ -1,0 +1,183 @@
+{
+  "pbtResults": {
+    "1. Write bug condition exploration test": {
+      "status": "passed",
+      "failingExample": "Three counterexamples found confirming the bug:\n\n1. Property 1a (Commerce+JEE): Counterexample: [{\"stream\":\"Commerce\",\"preferredModeOfAdmission\":\"JEE\"}]\n   → runCareerRecommendationAgent returns \"Chartered Accountancy (CA), BBA in Financial Analyst\" instead of bridge paths (lateral entry, B.Tech, quant finance). The fallback else branch ignores JEE exam preference entirely.\n\n2. Property 1b (Arts+NEET): Counterexample: [{\"stream\":\"Arts / Humanities\",\"preferredModeOfAdmission\":\"NEET\"}]\n   → runCareerRecommendationAgent returns \"B.Tech via Lateral Entry (after Diploma), B.Voc (Vocational Degree), Job-oriented Diplomas & Certifications\" instead of healthcare-adjacent bridge paths (Healthcare Management, Psychology, Public Health). The system ignores NEET medical exam preference.\n\n3. Property 1c (Empty State Summary): Counterexample: [{\"preferredState\":\" \",\"stream\":\"Commerce\"}]\n   → runSummaryAgent fallback produces \"By targeting top institutions in   and securing active scholarship assistance...\" — whitespace-only preferredState bypasses the || 'India' fallback and leaks a broken geographic placeholder into the summary.",
+      "lastRunTimestamp": 1784992806500
+    },
+    "2. Write preservation property tests (BEFORE implementing fix)": {
+      "status": "passed",
+      "lastRunTimestamp": 1784993052901
+    },
+    "3.5 Verify bug condition exploration test now passes": {
+      "status": "passed",
+      "lastRunTimestamp": 1784995927743
+    },
+    "3.6 Verify preservation tests still pass": {
+      "status": "passed",
+      "lastRunTimestamp": 1784995991752
+    }
+  },
+  "executionHistory": {
+    "1. Write bug condition exploration test": [
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784992573759
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784992582596
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784992823238
+      }
+    ],
+    "2. Write preservation property tests (BEFORE implementing fix)": [
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784992573938
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784992831967
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784993070399
+      }
+    ],
+    "3.1 Add EXAM_STREAM_MAP and detectStreamExamMismatch to server/config/streams.js": [
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784992574043
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784993080211
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784993277256
+      }
+    ],
+    "3.2 Update runCareerRecommendationAgent fallback in server/agents/Orchestrator.js": [
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784992574139
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784993286422
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784993654270
+      }
+    ],
+    "3.3 Update runCombinedGuidanceAgent prompt in server/agents/Orchestrator.js": [
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784992574245
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784993663129
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784994281881
+      }
+    ],
+    "3.4 Guard preferredState interpolation in runSummaryAgent fallback in server/agents/Orchestrator.js": [
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784992574392
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784994287691
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784995886863
+      }
+    ],
+    "3.5 Verify bug condition exploration test now passes": [
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784992574492
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784995896117
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784995940789
+      }
+    ],
+    "3.6 Verify preservation tests still pass": [
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784992574562
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784995947013
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784996004962
+      }
+    ],
+    "4. Checkpoint - Ensure all tests pass": [
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784992574644
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784996010306
+      },
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784996176893
+      }
+    ],
+    "3. Fix for stream-exam mismatch and summary state leak": [
+      {
+        "executionId": "c39c2ba9-ba87-48f8-be18-12df6fdbea13",
+        "chatSessionId": "sess_543b0a78-f7ce-4ae5-b08a-05b8d4939805",
+        "timestamp": 1784996005028
+      }
+    ]
+  }
+}

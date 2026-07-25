@@ -1,0 +1,22 @@
+{
+  "pbtResults": {
+    "1. Write bug condition exploration test": {
+      "status": "passed",
+      "failingExample": "Test 1 (duplicate names): realistic_colleges = [\"AIIMS New Delhi\",\"AIIMS New Delhi\"] — expected 1 occurrence, got 2 (AssertionError: actual 2, expected 1). Test 2 (in-region low-budget, Karnataka/Bangalore, budget: 'below_20k'): returned colleges = [\"NIT Patna\",\"NIT Patna\"] instead of [\"RV College of Engineering\",\"PES University\"] — unconditional swap ignores matching preferred region. Test 3 (out-of-region low-budget, Kerala, budget: 'below_1L'): substituted NIT Patna entry's whyFit = \"National Institute offering quality engineering education at subsidized fees.\" — generic text with no disclosure of the region-based substitution reasoning.",
+      "lastRunTimestamp": 1784997631047
+    },
+    "2. Write preservation property tests (BEFORE implementing fix)": {
+      "status": "passed",
+      "lastRunTimestamp": 1784998038405
+    },
+    "3.3 Verify bug condition exploration test now passes": {
+      "status": "passed",
+      "lastRunTimestamp": 1784998500994
+    },
+    "3.4 Verify preservation tests still pass": {
+      "status": "passed",
+      "lastRunTimestamp": 1784998539621
+    }
+  },
+  "executionHistory": {}
+}
