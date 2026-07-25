@@ -6,6 +6,7 @@ import {
   postPathwayRecommend,
 } from '../api'
 import { STATE_NAMES, citiesForState } from '../data/indiaLocations'
+import { formatCityState } from '../utils/location'
 
 // ─── Small UI helpers ─────────────────────────────────────────────────────────
 
@@ -146,7 +147,7 @@ function CollegeList({ colleges }) {
                 )}
                 {col.nearby && <span className="text-[9px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 px-1.5 py-0.5 rounded">📍 Near you</span>}
               </div>
-              <p className="text-gray-500 text-[10px] mt-0.5">{col.city}, {col.state} · {col.type}{col.national ? ' · all-India' : ''}</p>
+              <p className="text-gray-500 text-[10px] mt-0.5">{formatCityState(col.city, col.state)} · {col.type}{col.national ? ' · all-India' : ''}</p>
             </div>
             <span className="text-gray-400 text-[10px] whitespace-nowrap">{col.approx_fee}</span>
           </li>
