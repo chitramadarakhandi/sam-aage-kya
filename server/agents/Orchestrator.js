@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { normalizeStream, streamsMatch } from '../config/streams.js'
+import { normalizeStream, streamsMatch, detectStreamExamMismatch } from '../config/streams.js'
 import { enforceGuidanceEvidence } from '../domain/verification/verifyEvidence.js'
 import { callLLM, isAiAvailable, getAiStatus } from '../ai/llmClient.js'
 
@@ -12,6 +12,72 @@ const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, su
 // share ONE code path (env handling, token circuit breaker, provider fallback).
 async function runLLMAgent(prompt, responseJson = true) {
   return callLLM(prompt, { json: responseJson, maxTokens: 800, temperature: 0.2 })
+}
+
+/**
+ * Removes duplicate colleges by name (case/whitespace-insensitive), keeping
+ * only the first occurrence of each institution in its original position.
+ * Pure function — does not mutate the input array.
+ */
+export function dedupCollegesByName(colleges) {
+  const seen = new Set()
+  const result = []
+  for (const c of colleges || []) {
+    const key = (c.name || '').trim().toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(c)
+  }
+  return result
+}
+
+/**
+ * Scholarship surfaced when the RAG agent returns no DB-verified scholarships.
+ * Kept as a named constant so the evidence guardrail's allow-list and the
+ * response assembly can never drift apart (a drift would blank the name out).
+ */
+export const FALLBACK_SCHOLARSHIP_NAME = 'Post-Matric Scholarship Scheme'
+
+/**
+ * EVIDENCE GUARDRAIL — every college/scholarship name surfaced in the response
+ * must trace back to a record some agent actually produced.
+ *
+ * What this actually checks today: `runCollegeRecommendationAgent` and
+ * `runScholarshipAgent` are both deterministic (they map DB-retrieved rows, or
+ * pick from curated in-code fallback lists) — the LLM is never asked to name a
+ * college or a scholarship. So this is a defence-in-depth invariant check on the
+ * assembly step, NOT an LLM-hallucination filter. It becomes a real
+ * hallucination filter only if a future change lets the model choose names.
+ *
+ * Allow-list selection (deliberate, to avoid degrading the fallback paths):
+ *  - Colleges: the DB-retrieved rows when RAG returned any (the verified source
+ *    of truth). When RAG returned nothing (Supabase unconfigured / empty), the
+ *    allow-list is the college agent's own curated fallback rows instead — using
+ *    an empty allow-list there would strip every college and make the degraded
+ *    path strictly worse.
+ *  - Scholarships: the surfaced DB rows, or the curated fallback name when there
+ *    are none, so a legitimate fallback `scholarship_to_check` is never blanked.
+ *
+ * Pure function (no I/O) so it can be unit-tested without LLM/Supabase calls.
+ */
+export function applyEvidenceGuardrail(result, state = {}, formData = {}) {
+  const retrievedColleges = state.retrievedColleges || []
+  const collegeMappings = state.collegeRecommendations || []
+  const surfacedScholarships = state.scholarshipRecommendations || []
+
+  const collegeAllowList = retrievedColleges.length > 0
+    ? retrievedColleges.map(c => ({ name: c.name }))
+    : collegeMappings.flatMap(m => (m.colleges || []).map(c => ({ name: c.name })))
+
+  const scholarshipAllowList = surfacedScholarships.length > 0
+    ? surfacedScholarships.map(s => ({ name: s.name }))
+    : [{ name: FALLBACK_SCHOLARSHIP_NAME }]
+
+  return enforceGuidanceEvidence(result, {
+    profile: { classLevel: formData.classLevel || 'class12' },
+    colleges: collegeAllowList,
+    scholarships: scholarshipAllowList,
+  })
 }
 
 /**
@@ -40,6 +106,17 @@ export async function runCombinedGuidanceAgent(state) {
     modeInstruction = `This is a CLASS 12 student in the "${form.stream}" stream. "path" values are college courses/careers (e.g. B.Tech CSE, B.Sc Biotech, CA, B.Des) that fit their stream.`
   }
 
+  // Detect stream-exam mismatch before constructing the prompt
+  const mismatchResult = detectStreamExamMismatch(form.stream, form.preferredModeOfAdmission)
+
+  let mismatchParagraph = ''
+  if (mismatchResult.isMismatch) {
+    mismatchParagraph = `
+IMPORTANT — STREAM-EXAM MISMATCH DETECTED:
+${mismatchResult.advisory}
+You MUST acknowledge this conflict in your response. The student's declared stream ("${form.stream || 'NA'}") does not align with their preferred admission exam ("${form.preferredModeOfAdmission || 'NA'}"). Suggest reconciliation/bridge pathways that honor BOTH the student's stream background AND their exam interest. Include at least one bridge path such as: ${mismatchResult.bridgePaths.join(', ')}.`
+  }
+
   const prompt = `You are an honest Indian career counsellor. Analyse this student and produce guidance in ONE JSON response.
 
 STUDENT:
@@ -51,7 +128,7 @@ STUDENT:
 - Biggest fear: ${form.biggestFear || 'NA'}
 - Admission mode: ${form.preferredModeOfAdmission || 'NA'}
 
-${modeInstruction}
+${modeInstruction}${mismatchParagraph}
 
 INTEREST RULE: map creative/design interests (poster, sketching, UI) to modern careers (B.Des UI/UX, Animation, Digital Marketing), NOT traditional fine arts unless they mention performing arts/music.
 
@@ -398,6 +475,27 @@ export async function runCareerRecommendationAgent(state) {
       aLower.includes('lateral') || aLower.includes('diploma')
 
     // Diploma / lateral-entry students get practical routes, never CA/MBBS.
+    // BUT: first check for stream-exam mismatch, which takes priority over the
+    // isDiplomaTrack heuristic (since "Arts / Humanities" falsely triggers it
+    // due to "iti" in "humanities").
+    if (!isClass10) {
+      const mismatchResult = detectStreamExamMismatch(form.stream, form.preferredModeOfAdmission)
+      if (mismatchResult.isMismatch) {
+        return {
+          advisory: mismatchResult.advisory,
+          recommendations: mismatchResult.bridgePaths.map((bridgePath, idx) => ({
+            path_id: `bridge_${idx + 1}`,
+            path: bridgePath,
+            honest_take: `${mismatchResult.advisory} This bridge pathway combines your ${form.stream || 'current'} background with your ${form.preferredModeOfAdmission || ''} exam interest.`,
+            requires_entrance_exam: form.preferredModeOfAdmission || 'None',
+            opens_doors_to: ['Interdisciplinary career', 'Bridge to preferred field'],
+            watch_out_for: 'Bridge pathways may require additional preparation or lateral entry exams.',
+            backup_plan: 'Consider reorienting to a stream-compatible exam or explore integrated programs.'
+          }))
+        }
+      }
+    }
+
     if (!isClass10 && isDiplomaTrack) {
       return {
         recommendations: [
@@ -540,12 +638,33 @@ export async function runCareerRecommendationAgent(state) {
 }
 
 /**
+ * Returns true if any college in `colleges` has a `city`/`state` (lower-cased,
+ * trimmed) equal to the student's preferred `prefCity`/`prefState`. Placeholder
+ * values ("", "any state", "any") are treated as "no preference" by the caller
+ * before this function is invoked, so an empty prefState/prefCity here simply
+ * never matches (no in-region match possible when nothing is preferred).
+ */
+function hasInRegionMatch(colleges, prefState, prefCity) {
+  return (colleges || []).some(c => {
+    const cState = (c.state || '').trim().toLowerCase()
+    const cCity = (c.city || '').trim().toLowerCase()
+    return (prefState && cState === prefState) || (prefCity && cCity === prefCity)
+  })
+}
+
+/**
  * 4. College Recommendation Agent
  */
 export async function runCollegeRecommendationAgent(state) {
   const form = state.formData
   const careerPaths = state.careerPaths
   const retrievedColleges = state.retrievedColleges
+  // Student's preferred region, normalized. Placeholder values mean "no preference".
+  const rawPrefState = (form.preferredState || '').trim().toLowerCase()
+  const rawPrefCity = (form.preferredCity || '').trim().toLowerCase()
+  const NO_PREFERENCE = new Set(['', 'any state', 'any'])
+  const prefState = NO_PREFERENCE.has(rawPrefState) ? '' : rawPrefState
+  const prefCity = NO_PREFERENCE.has(rawPrefCity) ? '' : rawPrefCity
   // DETERMINISTIC (no LLM): the retrieved colleges are already DB-verified and
   // ranked by the RAG agent, so mapping them to paths is a pure lookup. This
   // removes one LLM call per request AND is more accurate than asking the model
@@ -639,22 +758,27 @@ export async function runCollegeRecommendationAgent(state) {
           ]
         }
 
-        // Adjust fallback colleges if the budget is very low (e.g., below_20k or below_1L)
+        // Adjust fallback colleges if the budget is very low (e.g., below_20k or below_1L),
+        // but only substitute to NIT Patna when no in-region affordable option already
+        // exists — and disclose the substitution reason when it does happen.
         if (form.budget === 'below_20k' || form.budget === 'below_1L') {
-          fallbackColleges = fallbackColleges.map(c => {
-            if (c.name === 'RV College of Engineering' || c.name === 'PES University') {
-              return {
-                ...c,
-                name: "NIT Patna",
-                city: "Patna",
-                state: "Bihar",
-                feeRange: "₹1,18,000–₹1,80,000/yr",
-                admissionMode: "JEE Main (State Quota)",
-                whyFit: "National Institute offering quality engineering education at subsidized fees."
+          const inRegion = hasInRegionMatch(fallbackColleges, prefState, prefCity)
+          if (!inRegion) {
+            fallbackColleges = fallbackColleges.map(c => {
+              if (c.name === 'RV College of Engineering' || c.name === 'PES University') {
+                return {
+                  ...c,
+                  name: "NIT Patna",
+                  city: "Patna",
+                  state: "Bihar",
+                  feeRange: "₹1,18,000–₹1,80,000/yr",
+                  admissionMode: "JEE Main (State Quota)",
+                  whyFit: "No affordable engineering college found in your region — nearest subsidized option is in Patna."
+                }
               }
-            }
-            return c
-          })
+              return c
+            })
+          }
         }
 
         return {
@@ -981,10 +1105,149 @@ export async function runSummaryAgent(state) {
     return await runLLMAgent(prompt)
   } catch (err) {
     console.warn('[SummaryAgent] Falling back to local mock synthesis...')
+
+    // Guard preferredState interpolation: only reference state if non-empty
+    // and meaningful (not just whitespace). Otherwise use generic phrasing.
+    const trimmedState = (form.preferredState || '').trim()
+    const geoPhrase = trimmedState
+      ? `in ${trimmedState}`
+      : 'across India'
+
+    // Detect stream-exam mismatch for advisory in summary
+    const mismatchResult = detectStreamExamMismatch(form.stream, form.preferredModeOfAdmission)
+    const advisoryNote = mismatchResult.isMismatch
+      ? ` Note: ${mismatchResult.advisory}`
+      : ''
+
     return {
-      summary: `Based on your ${form.stream || 'studies'} stream and interest in ${form.interests || 'building items'}, you have outstanding pathways ahead. By targeting top institutions in ${form.preferredState || 'India'} and securing active scholarship assistance, you can achieve your career objectives.`,
+      summary: `Based on your ${form.stream || 'studies'} stream and interest in ${form.interests || 'building items'}, you have outstanding pathways ahead. By targeting top institutions ${geoPhrase} and securing active scholarship assistance, you can achieve your career objectives.${advisoryNote}`,
       oneThingToDoThisWeek: "Look up the official website of the target entrance exams and verify the application deadlines."
     }
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// RESPONSE ASSEMBLY
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Assembles the final API response from a completed orchestration state and
+ * runs it through the evidence guardrail.
+ *
+ * Pure function (no LLM / DB / network I/O) so the join logic — which is where
+ * the frontend's contract actually lives — can be unit-tested directly:
+ *  - joins careerPaths ↔ collegeRecommendations ↔ roadmaps
+ *  - dedups colleges by name for the projected `realistic_colleges`
+ *  - derives `avg_yearly_cost` (class10 uses the budget band, class12 the fee range)
+ *  - attaches explainability + ai_status, then applies the evidence guardrail
+ *
+ * @param state      the orchestration state graph (see runMultiAgentOrchestrator)
+ * @param formData   the raw student form (only classLevel/budget are read here)
+ * @param totalDurationMs wall-clock duration reported in explainability
+ */
+export function assembleGuidanceResponse(state, formData = {}, totalDurationMs = 0) {
+  const assembled = {
+    summary: state.finalSummary.summary,
+    options: ((state.careerPaths && state.careerPaths.recommendations) || []).map(opt => {
+      // ── Bug #1 fix: match by path_id (strict equality) with path-text fallback ──
+      // Priority 1: both sides have path_id → exact match (no ambiguity)
+      // Priority 2: only one side has path_id → match on normalized path text
+      const matchMapping = (m) => {
+        if (opt.path_id && m.path_id) return opt.path_id === m.path_id
+        // Fallback for LLMs that omit path_id: normalized exact-text comparison
+        return (m.path || '').trim().toLowerCase() === (opt.path || '').trim().toLowerCase()
+      }
+
+      const mappedCol = (state.collegeRecommendations || []).find(matchMapping)
+      const mappedRoad = (state.roadmaps || []).find(matchMapping)
+
+      if (!mappedCol) {
+        console.warn(`[Orchestrator] No college mapping found for path_id="${opt.path_id}" path="${opt.path}"`)
+      }
+      if (!mappedRoad) {
+        console.warn(`[Orchestrator] No roadmap found for path_id="${opt.path_id}" path="${opt.path}"`)
+      }
+
+      // Dedup by institution name before building the response — this is the
+      // only place mappedCol.colleges is projected for the frontend, so it does
+      // not affect state.collegeRecommendations used elsewhere.
+      const dedupedColleges = mappedCol ? dedupCollegesByName(mappedCol.colleges) : []
+
+      // For Class 10, the user is looking at high school + local coaching cost.
+      // We estimate this cost based on their selected high school/coaching budget range.
+      let costStr = '₹20,000–₹60,000/yr'
+      if (formData.classLevel === 'class10') {
+        const b = formData.budget
+        if (b === 'below_20k') costStr = '₹5,000–₹20,000/yr'
+        else if (b === '20k-60k') costStr = '₹20,000–₹60,000/yr'
+        else if (b === '60k-1.5L') costStr = '₹60,000–₹1,50,000/yr'
+        else if (b === 'above_1.5L') costStr = '₹1,50,000–₹2,50,000/yr'
+      } else {
+        costStr = dedupedColleges.length ? dedupedColleges[0].feeRange : '₹80,000–₹1,50,000/yr'
+      }
+
+      return {
+        path: opt.path,
+        honest_take: opt.honest_take,
+        requires_entrance_exam: opt.requires_entrance_exam || 'None',
+        realistic_colleges: dedupedColleges.map(c => c.name),
+        avg_yearly_cost: costStr,
+        opens_doors_to: opt.opens_doors_to || [],
+        watch_out_for: opt.watch_out_for || 'Competition is high.',
+        backup_plan: opt.backup_plan || 'Look into alternative courses.',
+        roadmap_steps: mappedRoad ? mappedRoad.years : []
+      }
+    }),
+    scholarship_to_check: state.scholarshipRecommendations.length ? state.scholarshipRecommendations[0].name : FALLBACK_SCHOLARSHIP_NAME,
+    one_thing_to_do_this_week: state.finalSummary.oneThingToDoThisWeek,
+    scholarships_list: state.scholarshipRecommendations.map(s => ({
+      name: s.name,
+      application_url: s.applicationUrl,
+      deadline_pattern: 'Rolling basis',
+      description: `${s.description} | Eligibility: ${s.eligibility} | Value: ${s.amount}`
+    })),
+    study_abroad: state.studyAbroadGuidance,
+    mentors: state.mentorMatches,
+    youtube_videos: state.youtubeResources,
+    colleges_data: (state.retrievedColleges || []).reduce((acc, c) => {
+      acc[c.name] = {
+        source_url:      c.source_url,
+        yearly_cost_min: c.yearly_cost_min,
+        yearly_cost_max: c.yearly_cost_max,
+        city:            c.city,
+        state:           c.state,
+        college_type:    c.college_type,
+      }
+      return acc
+    }, {}),
+    explainability: {
+      totalDurationMs,
+      steps: state.executionLogs || [],
+      profile: state.profileAnalysis
+    },
+    // Tell the frontend whether real AI produced this, or the LLM was
+    // unavailable (rate-limited / no key) and it fell back to sample data.
+    ai_status: getAiStatus(),
+  }
+
+  // ─── EVIDENCE GUARDRAIL (single, centralized check) ───────────────────────
+  // Verifies every college/scholarship name surfaced in the assembled response
+  // traces back to a record an agent produced (DB-verified rows when RAG
+  // returned any). See applyEvidenceGuardrail for why this is an invariant
+  // check rather than an LLM-hallucination filter today.
+  const { result: guardedResult, guardrail } = applyEvidenceGuardrail(assembled, state, formData)
+  if (guardrail.removedUnsupportedCollegeClaims > 0 || guardrail.removedUnsupportedScholarshipClaim) {
+    console.warn(
+      `[EvidenceGuardrail] Dropped ${guardrail.removedUnsupportedCollegeClaims} college claim(s)` +
+      `${guardrail.removedUnsupportedScholarshipClaim ? ' and 1 scholarship claim' : ''} with no verified record behind them.`
+    )
+  } else {
+    console.log('[EvidenceGuardrail] Every surfaced college/scholarship name traces back to a verified record.')
+  }
+
+  return {
+    ...guardedResult,
+    explainability: { ...guardedResult.explainability, guardrail },
   }
 }
 
@@ -1067,13 +1330,16 @@ export async function runMultiAgentOrchestrator(formData) {
     // Combined call failed (AI down / bad JSON) → fall back to the per-agent
     // pipeline (which itself degrades to deterministic mocks).
     console.warn('[Orchestrator] Combined agent unavailable — using per-agent fallback pipeline.')
-    const [profileResult, careerResult, roadmapResult] = await Promise.all([
-      logStep('Profile Analysis Agent', () => runProfileAnalysisAgent(state)),
-      logStep('Career Recommendation Agent', () => runCareerRecommendationAgent(state)),
-      logStep('Career Roadmap Agent', () => runCareerRoadmapAgent(state)),
-    ])
+    // These three MUST run sequentially: the career agent reads
+    // state.profileAnalysis and the roadmap agent reads state.careerPaths, so
+    // each result has to be written to state before the next agent runs.
+    const profileResult = await logStep('Profile Analysis Agent', () => runProfileAnalysisAgent(state))
     state.profileAnalysis = profileResult || { academicStanding: 'Medium', financialCategory: 'Subsidized', riskAppetite: 'Balanced', keyConstraints: [], keyStrengths: [], coachingNeeds: '' }
+
+    const careerResult = await logStep('Career Recommendation Agent', () => runCareerRecommendationAgent(state))
     state.careerPaths = careerResult || { recommendations: [] }
+
+    const roadmapResult = await logStep('Career Roadmap Agent', () => runCareerRoadmapAgent(state))
     state.roadmaps = roadmapResult?.roadmaps || []
     state.finalSummary = null
   }
@@ -1103,107 +1369,11 @@ export async function runMultiAgentOrchestrator(formData) {
     state.finalSummary = sum || { summary: 'Guidance compiled.', oneThingToDoThisWeek: 'Review your options.' }
   }
 
-  // ─── COLLEGE GUARDRAIL: strip hallucinated names (Bug #2 fix) ───────────────
-  // Build an allow-list from the DB-retrieved colleges (the only verified source of truth).
-  if (state.retrievedColleges.length > 0) {
-    const allowedCollegeNames = new Set(state.retrievedColleges.map(c => c.name))
-    let totalRemoved = 0
-    state.collegeRecommendations = state.collegeRecommendations.map(mapping => {
-      const before = mapping.colleges ? mapping.colleges.length : 0
-      const filtered = (mapping.colleges || []).filter(c => allowedCollegeNames.has(c.name))
-      const removed = before - filtered.length
-      totalRemoved += removed
-      return { ...mapping, colleges: filtered }
-    })
-    if (totalRemoved > 0) {
-      console.warn(`[CollegeGuardrail] Removed ${totalRemoved} hallucinated college name(s) from LLM output.`)
-    } else {
-      console.log('[CollegeGuardrail] All college names verified against DB — no hallucinations detected.')
-    }
-  }
-
   // (Summary already produced by the combined agent, or synthesized in Stage 2.)
   const totalDuration = Date.now() - startTotal
   console.log(`[Orchestrator] Multi-Agent Execution completed successfully in ${totalDuration}ms`)
 
-  // Return the combined, structured result matches the shape expected by the frontend
-  // and includes full explainability metadata.
-  return {
-    summary: state.finalSummary.summary,
-    options: (state.careerPaths.recommendations || []).map(opt => {
-      // ── Bug #1 fix: match by path_id (strict equality) with path-text fallback ──
-      // Priority 1: both sides have path_id → exact match (no ambiguity)
-      // Priority 2: only one side has path_id → match on normalized path text
-      const matchMapping = (m) => {
-        if (opt.path_id && m.path_id) return opt.path_id === m.path_id
-        // Fallback for LLMs that omit path_id: normalized exact-text comparison
-        return (m.path || '').trim().toLowerCase() === (opt.path || '').trim().toLowerCase()
-      }
-
-      const mappedCol = state.collegeRecommendations.find(matchMapping)
-      const mappedRoad = state.roadmaps.find(matchMapping)
-
-      if (!mappedCol) {
-        console.warn(`[Orchestrator] No college mapping found for path_id="${opt.path_id}" path="${opt.path}"`)
-      }
-      if (!mappedRoad) {
-        console.warn(`[Orchestrator] No roadmap found for path_id="${opt.path_id}" path="${opt.path}"`)
-      }
-
-      // For Class 10, the user is looking at high school + local coaching cost.
-      // We estimate this cost based on their selected high school/coaching budget range.
-      let costStr = '₹20,000–₹60,000/yr'
-      if (formData.classLevel === 'class10') {
-        const b = formData.budget
-        if (b === 'below_20k') costStr = '₹5,000–₹20,000/yr'
-        else if (b === '20k-60k') costStr = '₹20,000–₹60,000/yr'
-        else if (b === '60k-1.5L') costStr = '₹60,000–₹1,50,000/yr'
-        else if (b === 'above_1.5L') costStr = '₹1,50,000–₹2,50,000/yr'
-      } else {
-        costStr = mappedCol && mappedCol.colleges.length ? mappedCol.colleges[0].feeRange : '₹80,000–₹1,50,000/yr'
-      }
-
-      return {
-        path: opt.path,
-        honest_take: opt.honest_take,
-        requires_entrance_exam: opt.requires_entrance_exam || 'None',
-        realistic_colleges: mappedCol ? mappedCol.colleges.map(c => c.name) : [],
-        avg_yearly_cost: costStr,
-        opens_doors_to: opt.opens_doors_to || [],
-        watch_out_for: opt.watch_out_for || 'Competition is high.',
-        backup_plan: opt.backup_plan || 'Look into alternative courses.',
-        roadmap_steps: mappedRoad ? mappedRoad.years : []
-      }
-    }),
-    scholarship_to_check: state.scholarshipRecommendations.length ? state.scholarshipRecommendations[0].name : 'Post-Matric Scholarship Scheme',
-    one_thing_to_do_this_week: state.finalSummary.oneThingToDoThisWeek,
-    scholarships_list: state.scholarshipRecommendations.map(s => ({
-      name: s.name,
-      application_url: s.applicationUrl,
-      deadline_pattern: 'Rolling basis',
-      description: `${s.description} | Eligibility: ${s.eligibility} | Value: ${s.amount}`
-    })),
-    study_abroad: state.studyAbroadGuidance,
-    mentors: state.mentorMatches,
-    youtube_videos: state.youtubeResources,
-    colleges_data: state.retrievedColleges.reduce((acc, c) => {
-      acc[c.name] = {
-        source_url:      c.source_url,
-        yearly_cost_min: c.yearly_cost_min,
-        yearly_cost_max: c.yearly_cost_max,
-        city:            c.city,
-        state:           c.state,
-        college_type:    c.college_type,
-      }
-      return acc
-    }, {}),
-    explainability: {
-      totalDurationMs: totalDuration,
-      steps: state.executionLogs,
-      profile: state.profileAnalysis
-    },
-    // Tell the frontend whether real AI produced this, or the LLM was
-    // unavailable (rate-limited / no key) and it fell back to sample data.
-    ai_status: getAiStatus(),
-  }
+  // Assemble the structured result in the shape expected by the frontend
+  // (including explainability metadata) and run the evidence guardrail.
+  return assembleGuidanceResponse(state, formData, totalDuration)
 }
