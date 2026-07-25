@@ -45,13 +45,19 @@ jobs:
       - name: Test
         run: npm test
 
-      # Gate on CRITICAL only. The remaining "high" advisories are all in
-      # build-time dev tooling (vite/esbuild — dev-server only, not shipped) and
-      # react-router edge-case redirect advisories with no non-breaking fix at
-      # the time of writing. We track them but don't block CI on dev-only noise.
-      # Runtime/production dependencies are audited at critical to catch real risk.
+      # Gate on HIGH and above: any high or critical advisory fails CI. Root and
+      # server/ are both clean at that level (the vite/esbuild high was cleared by
+      # vite 6.4.3, and the react-router high was cleared by holding
+      # react-router-dom at 6.30.4).
+      #
+      # Two MODERATE react-router advisories remain and are knowingly not blocked:
+      # an open redirect via a backslash-prefixed path in Link/useNavigate, and
+      # constructor injection in `deserializeErrors`, which is unreachable in this
+      # client-only SPA (no React Router server/RSC data layer). No patched 6.x
+      # release exists; the fix requires a two-major migration to react-router 8,
+      # which is tracked separately rather than forced by the audit gate.
       - name: Audit frontend dependencies
-        run: npm audit --audit-level=critical
+        run: npm audit --audit-level=high
 
       - name: Audit server dependencies
-        run: npm --prefix server audit --audit-level=critical
+        run: npm --prefix server audit --audit-level=high
