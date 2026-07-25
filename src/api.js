@@ -16,9 +16,10 @@ export function apiUrl(path) {
 
 async function apiFetch(path, options = {}) {
   const url = `${BASE_URL}${path}`
+  const { headers, ...rest } = options
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-    ...options,
+    ...rest,
+    headers: { 'Content-Type': 'application/json', ...(headers || {}) },
   })
   return res
 }
@@ -59,6 +60,76 @@ export async function postSync(formData, result, authToken) {
     method: 'POST',
     headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
     body: JSON.stringify({ formData, result }),
+  })
+}
+
+export async function postReOnboard(authToken) {
+  return apiFetch('/api/re-onboard', {
+    method: 'POST',
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+  })
+}
+
+export async function putWallet(wallet, authToken) {
+  return apiFetch('/api/wallet', {
+    method: 'PUT',
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    body: JSON.stringify({ wallet }),
+  })
+}
+
+export async function postScenario(label, formData, guidanceResult, authToken) {
+  return apiFetch('/api/scenarios', {
+    method: 'POST',
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    body: JSON.stringify({ label, formData, guidanceResult }),
+  })
+}
+
+export async function getScenarios(authToken) {
+  return apiFetch('/api/scenarios', {
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+  })
+}
+
+export async function deleteScenario(id, authToken) {
+  return apiFetch(`/api/scenarios/${id}`, {
+    method: 'DELETE',
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+  })
+}
+
+export async function getQAPosts(params) {
+  return apiFetch(`/api/qa?${params}`)
+}
+
+export async function postQAQuestion(question, streamTag, authToken) {
+  return apiFetch('/api/qa', {
+    method: 'POST',
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    body: JSON.stringify({ question, streamTag }),
+  })
+}
+
+export async function postChat(messages, profile) {
+  return apiFetch('/api/chat', {
+    method: 'POST',
+    body: JSON.stringify({ messages, profile }),
+  })
+}
+
+export async function getCollegeDetails(name) {
+  return apiFetch(`/api/college-details?name=${encodeURIComponent(name)}`)
+}
+
+export async function getCourseFeedback(stream, options = {}) {
+  return apiFetch(`/api/course-feedback?stream=${encodeURIComponent(stream)}`, options)
+}
+
+export async function postGenerateCareerPath(profession, formData) {
+  return apiFetch('/api/generate-career-path', {
+    method: 'POST',
+    body: JSON.stringify({ profession, formData }),
   })
 }
 

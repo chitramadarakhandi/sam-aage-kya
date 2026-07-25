@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { getQAPosts, postQAQuestion } from '../api'
 
-const API = 'http://localhost:5000'
 const STREAMS = ['All', 'Science (PCM)', 'Science (PCB)', 'Commerce', 'Arts / Humanities', 'Class 10 / Stream Selection']
 
 function PostCard({ post }) {
@@ -53,11 +53,7 @@ function AskForm({ session, onPosted }) {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(`${API}/api/qa`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ question: question.trim(), streamTag: streamTag || '' })
-      })
+      const res = await postQAQuestion(question.trim(), streamTag || '', session.access_token)
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || 'Failed to post')
       setQuestion('')
@@ -123,7 +119,7 @@ export default function QABoard() {
     try {
       const params = new URLSearchParams({ page: p })
       if (s !== 'All') params.set('stream', s)
-      const res = await fetch(`${API}/api/qa?${params}`)
+      const res = await getQAPosts(params)
       const data = await res.json()
       const newPosts = data.posts || []
       setPosts(prev => replace ? newPosts : [...prev, ...newPosts])

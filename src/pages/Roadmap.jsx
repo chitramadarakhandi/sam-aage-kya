@@ -7,21 +7,14 @@ import {
   ErrorCard,
   ProfileStrip,
 } from './Result'
+import { postRoadmap } from '../api'
 
 // ─── Backend API call ─────────────────────────────────────────────────────────
 
 async function callGeminiRoadmap(form, option) {
   const { data: { session } } = await supabase.auth.getSession()
-  const headers = { 'Content-Type': 'application/json' }
-  if (session) {
-    headers['Authorization'] = `Bearer ${session.access_token}`
-  }
 
-  const res = await fetch('http://localhost:5000/api/roadmap', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ formData: form, option }),
-  })
+  const res = await postRoadmap(form, option, session?.access_token)
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))

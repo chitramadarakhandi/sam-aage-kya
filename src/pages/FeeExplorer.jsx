@@ -1,3 +1,25 @@
+/*
+ * NOT ROUTED — NON-FUNCTIONAL. DO NOT RE-ROUTE THIS PAGE.
+ *
+ * This component is kept on disk as reference work only. It is deliberately not
+ * registered in `src/App.jsx` and has no navigation entry anywhere in `src/`,
+ * because it cannot run:
+ *
+ *  - The API helpers it imports, `getVerifiedFeePlan` and `getVerifiedFeePlans`,
+ *    do not exist in `src/api.js`. Calling them throws a runtime TypeError as
+ *    soon as the page fetches. Rollup does not fail the build on missing named
+ *    imports, so CI would not catch this if the page were routed.
+ *  - The backend endpoints those helpers would call — `GET /api/fees/pilot`,
+ *    `GET /api/fees/pilot/:id`, and `POST /api/fees/calculate` — were never
+ *    implemented in `server/index.js`. They exist only as an interface proposal
+ *    in `docs/FEE_RESEARCH_PILOT.md`.
+ *
+ * Do not re-add a route or nav link until BOTH exist: the `/api/fees/*` routes
+ * backed by sourced, verified fee data (with source, effective period and
+ * verification state per component, per the data-provenance rules in
+ * `docs/CURRENT_STATE_AUDIT.md` §25), and the matching `src/api.js` helpers.
+ * Fabricating fee figures is explicitly out of bounds for this project.
+ */
 import { useEffect, useMemo, useState } from 'react'
 import { getVerifiedFeePlan, getVerifiedFeePlans } from '../api'
 

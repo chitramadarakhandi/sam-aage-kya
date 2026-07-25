@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Link, useSearchParams } from 'react-router-dom'
 import YouTubePanel from '../components/YouTubePanel'
 import { COURSES_DATA } from '../data/coursesData'
+import { postGenerateCareerPath } from '../api'
 
 const CAREER_PATHS = [
   {
@@ -372,17 +373,7 @@ export default function CareerPipeline() {
     setGenError(null)
 
     try {
-      const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000'
-      const res = await fetch(`${backendUrl}/api/generate-career-path`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          profession: customProfession.trim(),
-          formData: profile
-        })
-      })
+      const res = await postGenerateCareerPath(customProfession.trim(), profile)
 
       if (!res.ok) {
         throw new Error('Failed to generate career path roadmap')

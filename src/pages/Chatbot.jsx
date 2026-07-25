@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { postChat } from '../api'
 
 // ─── Quick question chips ─────────────────────────────────────────────────────
 
@@ -159,11 +160,7 @@ export default function Chatbot() {
         content: m.content,
       }))
 
-      const res = await fetch('http://localhost:5000/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: contextWindow, profile }),
-      })
+      const res = await postChat(contextWindow, profile)
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))

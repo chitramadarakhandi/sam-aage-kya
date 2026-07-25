@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { getMentors } from '../api'
 
 // ─── Summary-mode report ──────────────────────────────────────────────────────
 
@@ -370,7 +371,7 @@ export default function PrintReport() {
       const fetchMentorOnly = async () => {
         const streamToMatch = activeProfile?.stream || 'Class 10 / Stream Selection'
         try {
-          const res = await fetch('http://localhost:5000/api/mentors')
+          const res = await getMentors()
           if (res.ok) {
             const mentors = await res.json()
             const match = mentors.find(m => {
@@ -424,7 +425,7 @@ export default function PrintReport() {
         })
 
         const streamToMatch = profile.stream || 'Class 10 / Stream Selection'
-        const res = await fetch('http://localhost:5000/api/mentors')
+        const res = await getMentors()
         if (res.ok) {
           const mentors = await res.json()
           const match = mentors.find(m => {

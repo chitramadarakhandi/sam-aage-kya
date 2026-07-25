@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useLocation, Link, useParams } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { supabase } from '../supabaseClient'
 import AuthModal from '../components/AuthModal'
 import CourseReality from '../components/CourseReality'
@@ -7,6 +8,29 @@ import ExamDetails from '../components/ExamDetails'
 import CourseOverlayPanel from '../components/CourseOverlayPanel'
 import CollegeDetailCard from '../components/CollegeDetailCard'
 import RankPredictor from '../components/RankPredictor'
+import { getMentors, postGuidance, postScenario, postSync } from '../api'
+
+// ─── Framer Motion Variants ──────────────────────────────────────────────────
+const staggerContainer = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.15 } },
+}
+
+const cardRevealVariant = {
+  hidden: { opacity: 0, y: 28, scale: 0.97, filter: 'blur(4px)' },
+  show: { 
+    opacity: 1, y: 0, scale: 1, filter: 'blur(0px)',
+    transition: { duration: 0.55, ease: [0.22, 1, 0.36, 1] } 
+  },
+}
+
+const pillPopVariant = {
+  hidden: { opacity: 0, scale: 0.8 },
+  show: (i) => ({
+    opacity: 1, scale: 1,
+    transition: { type: 'spring', stiffness: 400, damping: 15, delay: i * 0.05 }
+  }),
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -20,16 +44,8 @@ const INCOME_LABELS = {
 
 async function callGemini(form) {
   const { data: { session } } = await supabase.auth.getSession()
-  const headers = { 'Content-Type': 'application/json' }
-  if (session) {
-    headers['Authorization'] = `Bearer ${session.access_token}`
-  }
 
-  const res = await fetch('http://localhost:5000/api/guidance', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ formData: form }),
-  })
+  const res = await postGuidance(form, session?.access_token)
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
@@ -47,26 +63,51 @@ async function callGemini(form) {
 
 export function Spinner() {
   return (
-    <div className="flex flex-col items-center justify-center gap-6 py-20">
-      {/* Animated rings */}
-      <div className="relative w-20 h-20">
-        <div className="absolute inset-0 rounded-full border-4 border-white/5" />
-        <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-saffron animate-spin" />
-        <div className="absolute inset-2 rounded-full border-4 border-transparent border-t-saffron/40 animate-spin" style={{ animationDuration: '1.5s', animationDirection: 'reverse' }} />
-        <div className="absolute inset-0 flex items-center justify-center text-2xl">🤔</div>
+    <div className="space-y-6 py-4">
+      {/* Summary skeleton */}
+      <div className="rounded-2xl p-7 sm:p-9 border border-saffron/20" style={{ background: 'linear-gradient(135deg, rgba(255,107,0,0.08) 0%, rgba(15,23,42,0.5) 100%)' }}>
+        <div className="space-y-3">
+          <div className="animate-shimmer bg-gradient-to-r from-navy-800 via-navy-700 to-navy-800 bg-[length:1000px_100%] h-4 w-48 rounded" />
+          <div className="animate-shimmer bg-gradient-to-r from-navy-800 via-navy-700 to-navy-800 bg-[length:1000px_100%] h-5 w-full rounded" />
+          <div className="animate-shimmer bg-gradient-to-r from-navy-800 via-navy-700 to-navy-800 bg-[length:1000px_100%] h-5 w-3/4 rounded" />
+        </div>
       </div>
-      <div className="text-center space-y-1">
-        <p className="text-white font-semibold text-lg font-display">Thinking honestly…</p>
+      {/* Card skeletons */}
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="glass-card p-6 sm:p-8 space-y-4" style={{ animationDelay: `${i * 100}ms` }}>
+          <div className="flex items-center gap-4">
+            <div className="animate-shimmer bg-gradient-to-r from-navy-800 via-navy-700 to-navy-800 bg-[length:1000px_100%] w-10 h-10 rounded-xl" />
+            <div className="flex-1 space-y-2">
+              <div className="animate-shimmer bg-gradient-to-r from-navy-800 via-navy-700 to-navy-800 bg-[length:1000px_100%] h-5 w-2/3 rounded" />
+              <div className="animate-shimmer bg-gradient-to-r from-navy-800 via-navy-700 to-navy-800 bg-[length:1000px_100%] h-3 w-20 rounded" />
+            </div>
+          </div>
+          <div className="animate-shimmer bg-gradient-to-r from-navy-800 via-navy-700 to-navy-800 bg-[length:1000px_100%] h-16 rounded-xl" />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <div className="animate-shimmer bg-gradient-to-r from-navy-800 via-navy-700 to-navy-800 bg-[length:1000px_100%] h-3 w-24 rounded" />
+              <div className="animate-shimmer bg-gradient-to-r from-navy-800 via-navy-700 to-navy-800 bg-[length:1000px_100%] h-4 w-full rounded" />
+              <div className="animate-shimmer bg-gradient-to-r from-navy-800 via-navy-700 to-navy-800 bg-[length:1000px_100%] h-4 w-4/5 rounded" />
+            </div>
+            <div className="space-y-2">
+              <div className="animate-shimmer bg-gradient-to-r from-navy-800 via-navy-700 to-navy-800 bg-[length:1000px_100%] h-3 w-20 rounded" />
+              <div className="animate-shimmer bg-gradient-to-r from-navy-800 via-navy-700 to-navy-800 bg-[length:1000px_100%] h-6 w-36 rounded" />
+            </div>
+          </div>
+        </div>
+      ))}
+      {/* Thinking indicator at bottom */}
+      <div className="flex flex-col items-center gap-3 pt-4">
+        <div className="flex gap-1.5">
+          {[0, 1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="w-1.5 h-1.5 rounded-full bg-saffron animate-bounce"
+              style={{ animationDelay: `${i * 150}ms` }}
+            />
+          ))}
+        </div>
         <p className="text-gray-400 text-sm">AI is reading your answers carefully</p>
-      </div>
-      <div className="flex gap-1.5 mt-2">
-        {[0, 1, 2, 3].map((i) => (
-          <div
-            key={i}
-            className="w-1.5 h-1.5 rounded-full bg-saffron animate-bounce"
-            style={{ animationDelay: `${i * 150}ms` }}
-          />
-        ))}
       </div>
     </div>
   )
@@ -168,7 +209,11 @@ function ConfidenceBadge({ label, reason }) {
 
 function SummaryCard({ summary, name }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl p-7 sm:p-9 mb-6 animate-slide-up"
+    <motion.div 
+      initial={{ opacity: 0, y: 20, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+      className="relative overflow-hidden rounded-2xl p-7 sm:p-9 mb-6"
       style={{ background: 'linear-gradient(135deg, rgba(255,107,0,0.18) 0%, rgba(255,107,0,0.06) 60%, rgba(15,23,42,0) 100%)', border: '1px solid rgba(255,107,0,0.3)' }}>
       {/* Top accent line */}
       <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-saffron via-saffron-light to-transparent" />
@@ -187,7 +232,7 @@ function SummaryCard({ summary, name }) {
         )}
         <p className="text-white text-lg leading-relaxed font-medium">{summary}</p>
       </div>
-    </div>
+    </motion.div>
   )
 }
 
@@ -198,9 +243,11 @@ function OptionCard({ option, index, formData, collegesData }) {
   const [showCoursePanel, setShowCoursePanel] = useState(false)
 
   return (
-    <div
-      className={`glass-card p-6 sm:p-8 flex flex-col gap-5 hover:scale-[1.01] transition-all duration-300 animate-slide-up ${colorMap[index] || 'border-white/15'}`}
-      style={{ animationDelay: `${(index + 1) * 120}ms` }}
+    <motion.div
+      variants={cardRevealVariant}
+      whileHover={{ y: -4, boxShadow: '0 0 40px rgba(255,107,0,0.2)' }}
+      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+      className={`glass-card p-6 sm:p-8 flex flex-col gap-5 ${colorMap[index] || 'border-white/15'}`}
     >
       {/* Header */}
       <div className="flex items-start gap-4">
@@ -273,9 +320,15 @@ function OptionCard({ option, index, formData, collegesData }) {
             <p className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-2">🚀 Opens Doors To</p>
             <div className="flex flex-wrap gap-1.5">
               {(option.opens_doors_to || []).map((d, i) => (
-                <span key={i} className="text-xs bg-navy-700 border border-white/10 text-gray-300 px-2.5 py-1 rounded-lg">
+                <motion.span 
+                  key={i}
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 400, damping: 15, delay: i * 0.06 }}
+                  className="text-xs bg-navy-700 border border-white/10 text-gray-300 px-2.5 py-1 rounded-lg"
+                >
                   {d}
-                </span>
+                </motion.span>
               ))}
             </div>
           </div>
@@ -316,7 +369,7 @@ function OptionCard({ option, index, formData, collegesData }) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
         </svg>
       </Link>
-    </div>
+    </motion.div>
   )
 }
 
@@ -393,16 +446,27 @@ export function ProfileStrip({ form }) {
   ].filter(Boolean)
 
   return (
-    <div className="flex flex-wrap gap-2 mb-8">
+    <motion.div 
+      className="flex flex-wrap gap-2 mb-8"
+      initial="hidden"
+      animate="show"
+      variants={{ hidden: {}, show: { transition: { staggerChildren: 0.06 } } }}
+    >
       {pills.map((p) => (
-        <span key={p} className="text-xs bg-navy-800 border border-white/10 text-gray-300 px-3 py-1.5 rounded-full font-medium">
+        <motion.span 
+          key={p} 
+          variants={pillPopVariant}
+          className="text-xs bg-navy-800 border border-white/10 text-gray-300 px-3 py-1.5 rounded-full font-medium"
+        >
           {p}
-        </span>
+        </motion.span>
       ))}
-      <Link to="/onboarding" className="text-xs text-saffron border border-saffron/30 px-3 py-1.5 rounded-full font-medium hover:bg-saffron/10 transition-colors">
-        ✏️ Edit Answers
-      </Link>
-    </div>
+      <motion.span variants={pillPopVariant}>
+        <Link to="/onboarding" className="text-xs text-saffron border border-saffron/30 px-3 py-1.5 rounded-full font-medium hover:bg-saffron/10 transition-colors inline-block">
+          ✏️ Edit Answers
+        </Link>
+      </motion.span>
+    </motion.div>
   )
 }
 
@@ -504,7 +568,7 @@ export default function Result() {
   // Match a mentor based on student stream or class level
   useEffect(() => {
     if (!formData) return
-    fetch('http://localhost:5000/api/mentors')
+    getMentors()
       .then((res) => {
         if (!res.ok) throw new Error('API failed')
         return res.json()
@@ -533,14 +597,7 @@ export default function Result() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (event === 'SIGNED_IN' && newSession && formData && result) {
         try {
-          await fetch('http://localhost:5000/api/sync', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${newSession.access_token}`
-            },
-            body: JSON.stringify({ formData, result })
-          })
+          await postSync(formData, result, newSession.access_token)
           console.log('Synced offline results to Supabase.')
         } catch (err) {
           console.error('Failed to sync offline results:', err)
@@ -577,11 +634,7 @@ export default function Result() {
     setScenarioSaving(true)
     try {
       const label = `${formData.stream || 'My Path'} — ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`
-      await fetch('http://localhost:5000/api/scenarios', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ label, formData, guidanceResult: result }),
-      })
+      await postScenario(label, formData, result, session.access_token)
       setScenarioSaved(true)
     } catch (err) {
       console.error('Failed to save scenario:', err)
@@ -792,24 +845,30 @@ export default function Result() {
             />
 
             {/* 2 — Options */}
-            {(result.options || []).map((opt, i) => (
-              <div key={i} className="space-y-2">
-                <OptionCard option={opt} index={i} formData={formData} collegesData={result.colleges_data} />
-                {/* Reality of this course/stream — collapsible insight layer */}
-                <CourseReality streamKey={opt.path} />
-                {parentMode && (
-                  <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-5 sm:p-6 animate-slide-up">
-                    <p className="text-blue-400 text-xs font-bold uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
-                      <span>👨‍👩‍👧</span>
-                      <span>Why This Fits Your Child</span>
-                    </p>
-                    <p className="text-gray-300 text-sm leading-relaxed">
-                      This recommendation directly aligns with their subject interest in <strong className="text-white">&ldquo;{formData?.interests}&rdquo;</strong> and matches their academic performance of <strong className="text-white">{formData?.marks}%</strong>.
-                    </p>
-                  </div>
-                )}
-              </div>
-            ))}
+            <motion.div
+              variants={staggerContainer}
+              initial="hidden"
+              animate="show"
+              className="space-y-6"
+            >
+              {(result.options || []).map((opt, i) => (
+                <motion.div key={i} variants={cardRevealVariant} className="space-y-2">
+                  <OptionCard option={opt} index={i} formData={formData} collegesData={result.colleges_data} />
+                  <CourseReality streamKey={opt.path} />
+                  {parentMode && (
+                    <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-5 sm:p-6">
+                      <p className="text-blue-400 text-xs font-bold uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                        <span>👨‍👩‍👧</span>
+                        <span>Why This Fits Your Child</span>
+                      </p>
+                      <p className="text-gray-300 text-sm leading-relaxed">
+                        This recommendation directly aligns with their subject interest in <strong className="text-white">&ldquo;{formData?.interests}&rdquo;</strong> and matches their academic performance of <strong className="text-white">{formData?.marks}%</strong>.
+                      </p>
+                    </div>
+                  )}
+                </motion.div>
+              ))}
+            </motion.div>
 
             {/* 3 — Scholarships List */}
             {result.scholarships_list && result.scholarships_list.length > 0 ? (

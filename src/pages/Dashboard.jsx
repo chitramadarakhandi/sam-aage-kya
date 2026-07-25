@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { getMentors, postReOnboard, putWallet } from '../api'
 
 export default function Dashboard() {
-  const { user, profile, loading: authLoading, refreshProfile } = useAuth()
+  const { user, session, profile, loading: authLoading, refreshProfile } = useAuth()
   const navigate = useNavigate()
 
   const [activeTab, setActiveTab] = useState('guidance') // guidance | tracker | wallet | parent | history
@@ -57,7 +58,7 @@ export default function Dashboard() {
           const streamToMatch = student.stream || 'Class 10 / Stream Selection'
           const classLevel = student.class_level || 'class12'
 
-          const res = await fetch('http://localhost:5000/api/mentors')
+          const res = await getMentors()
           if (res.ok) {
             const mentors = await res.json()
             const match = mentors.find(m => {
@@ -99,14 +100,8 @@ export default function Dashboard() {
     if (!window.confirm('This will archive your current guidance results to history so you can generate a fresh report. Are you sure you want to proceed?')) return
     setReOnboarding(true)
     try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token
-      const res = await fetch('http://localhost:5000/api/re-onboard', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      const token = session?.access_token
+      const res = await postReOnboard(token)
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}))
         throw new Error(errData.message || 'Archiving failed')
@@ -130,16 +125,10 @@ export default function Dashboard() {
     if (!window.confirm('This will replace your current active guidance report with this archived version. Your current report will be archived. Restore now?')) return
     setReOnboarding(true)
     try {
-      const token = (await supabase.auth.getSession()).data.session?.access_token
+      const token = session?.access_token
       
       // Step 1: Archive current report first
-      await fetch('http://localhost:5000/api/re-onboard', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      })
+      await postReOnboard(token)
 
       // Step 2: Write snapshot data into database
       const client = supabase
@@ -247,15 +236,8 @@ export default function Dashboard() {
         updatedWallet = [newEntry, ...wallet]
       }
 
-      const token = (await supabase.auth.getSession()).data.session?.access_token
-      const res = await fetch('http://localhost:5000/api/wallet', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ wallet: updatedWallet })
-      })
+      const token = session?.access_token
+      const res = await putWallet(updatedWallet, token)
 
       if (!res.ok) throw new Error('Failed to update wallet')
       const resData = await res.json()
@@ -273,15 +255,8 @@ export default function Dashboard() {
     if (!window.confirm('Delete this entry from your Academic Wallet?')) return
     try {
       const updatedWallet = wallet.filter(w => w.id !== id)
-      const token = (await supabase.auth.getSession()).data.session?.access_token
-      const res = await fetch('http://localhost:5000/api/wallet', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ wallet: updatedWallet })
-      })
+      const token = session?.access_token
+      const res = await putWallet(updatedWallet, token)
 
       if (!res.ok) throw new Error('Failed to delete')
       const resData = await res.json()

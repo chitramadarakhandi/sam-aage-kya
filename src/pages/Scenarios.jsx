@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-
-const API = 'http://localhost:5000'
+import { deleteScenario, getScenarios } from '../api'
 
 function ScenarioCard({ scenario, selected, onSelect, onDelete }) {
   const form = scenario.form_data || {}
@@ -100,9 +99,7 @@ export default function Scenarios() {
     if (!session?.access_token) return
     setLoading(true)
     try {
-      const res = await fetch(`${API}/api/scenarios`, {
-        headers: { Authorization: `Bearer ${session.access_token}` }
-      })
+      const res = await getScenarios(session.access_token)
       const data = await res.json()
       setScenarios(data.scenarios || [])
     } catch (err) {
@@ -117,10 +114,7 @@ export default function Scenarios() {
   const handleDelete = async (id) => {
     if (!session?.access_token) return
     try {
-      await fetch(`${API}/api/scenarios/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${session.access_token}` }
-      })
+      await deleteScenario(id, session.access_token)
       setScenarios(prev => prev.filter(s => s.id !== id))
       setSelected(prev => prev.filter(sid => sid !== id))
     } catch { setError('Delete failed.') }

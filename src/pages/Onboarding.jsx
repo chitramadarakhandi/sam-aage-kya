@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import PrivacyConsentModal, { useConsent } from '../components/PrivacyConsentModal'
 import { STREAM_VALUES } from '../config/streams'
+import { postTranscribe } from '../api'
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -526,11 +527,7 @@ function Step3({ form, setForm, errors, classLevel = 'class12' }) {
     else setTranscribingFear(true)
 
     try {
-      const res = await fetch('http://localhost:5000/api/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audio: base64data, mimeType })
-      })
+      const res = await postTranscribe(base64data, mimeType)
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
