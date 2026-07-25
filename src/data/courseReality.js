@@ -452,9 +452,25 @@ export function getCourseReality(key) {
   if (!key) return null
   // Exact match
   if (COURSE_REALITY[key]) return COURSE_REALITY[key]
-  // Partial match — e.g., "Science (PCM) with Tech Focus" → "Science (PCM)"
-  const partialKey = Object.keys(COURSE_REALITY).find(k =>
-    key.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(key.toLowerCase().split(' ')[0])
-  )
-  return partialKey ? COURSE_REALITY[partialKey] : null
+
+  const normalized = normalizeRealityKey(key)
+  if (!normalized) return null
+
+  // Normalized exact match (tolerates casing / spacing drift only).
+  const exact = Object.keys(COURSE_REALITY).find(k => normalizeRealityKey(k) === normalized)
+  if (exact) return COURSE_REALITY[exact]
+
+  // FULL-string containment — e.g. "Science (PCM) with Tech Focus" → "Science (PCM)".
+  // Never first-word matching: "Science (PCB) with Research" must not fall into
+  // "Science (PCM)" just because both start with "Science".
+  const contained = Object.keys(COURSE_REALITY).find(k => {
+    const nk = normalizeRealityKey(k)
+    return nk.length > 0 && (normalized.includes(nk) || nk.includes(normalized))
+  })
+  return contained ? COURSE_REALITY[contained] : null
+}
+
+/** trim + collapse inner whitespace + lower-case. */
+function normalizeRealityKey(key) {
+  return String(key ?? '').trim().replace(/\s+/g, ' ').toLowerCase()
 }

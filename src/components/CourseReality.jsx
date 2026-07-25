@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getCourseReality } from '../data/courseReality'
+import { getCourseFeedback } from '../api'
 
 // ─── YouTube embed card ───────────────────────────────────────────────────────
 
@@ -83,9 +84,7 @@ function _StudentFeedback({ streamKey }) {
 
   useEffect(() => {
     const controller = new AbortController()
-    fetch(`http://localhost:5000/api/course-feedback?stream=${encodeURIComponent(streamKey)}`, {
-      signal: controller.signal,
-    })
+    getCourseFeedback(streamKey, { signal: controller.signal })
       .then(r => r.ok ? r.json() : { feedback: [] })
       .then(d => { setFeedback(d.feedback || []); setLoading(false) })
       .catch(() => setLoading(false))
