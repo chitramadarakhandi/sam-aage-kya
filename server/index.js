@@ -6,7 +6,8 @@ import { createClient } from '@supabase/supabase-js'
 import { runMultiAgentOrchestrator } from './agents/Orchestrator.js'
 import { HISTORICAL_CUTOFFS } from './cutoffsData.js'
 import { recommendPathways } from './ai/pathwayAdvisor.js'
-import { getAiStatus } from './ai/llmClient.js'
+import { getAiStatus, callLLM } from './ai/llmClient.js'
+import { pickCollegeMatch, escapeIlikePattern } from './domain/colleges/matchCollegeName.js'
 import {
   QUESTION_BANK,
   DOMAINS,
@@ -562,7 +563,7 @@ async function fetchScholarshipsForStudent(form) {
   try {
     const { data, error } = await supabase
       .from('scholarships')
-      .select('name, description, application_url, deadline_pattern, eligibility_income_max_lakh, eligible_streams, eligible_states')
+      .select('name, description, application_url, deadline_pattern, eligibility_marks_min, eligibility_income_max_lakh, eligible_streams, eligible_states')
 
     if (error) { console.warn('Scholarship fetch warning:', error.message); return [] }
 
@@ -890,151 +891,6 @@ function computeConfidence(form) {
   return { confidence_score: score, confidence_label: label, confidence_reason: reason }
 }
 
-function getMockGuidance(form, colleges = [], scholarships = []) {
-  const isClass10 = form.classLevel === 'class10'
-  const name = form.fullName || 'Student'
-  
-  if (isClass10) {
-    const budget = form.budget || 'below_20k'
-    let cost = '₹20,000–₹60,000/yr'
-    if (budget === 'below_20k') cost = '₹5,000–₹20,000/yr'
-    else if (budget === '20k-60k') cost = '₹20,000–₹60,000/yr'
-    else if (budget === '60k-1.5L') cost = '₹60,000–₹1,50,000/yr'
-    else if (budget === 'above_1.5L') cost = '₹1,50,000–₹2,50,000/yr'
-
-    return {
-      summary: `Hi ${name}, based on your 10th grade prep with ${form.marks}% marks and interest in ${form.interests || 'your subjects'}, you have excellent choices ahead. We have selected paths balancing your comfort with risks and location preferences in ${form.state || 'India'}.`,
-      options: [
-        {
-          path: "Science (PCM)",
-          honest_take: "Since you like technical subjects and have decent marks, PCM is a strong foundation. It is highly competitive but opens maximum engineering doors.",
-          requires_entrance_exam: "JEE Main / State CET / BITSAT",
-          realistic_colleges: colleges.length ? colleges.slice(0, 3).map(c => c.name) : ["Local Science Junior College", "State Board School"],
-          avg_yearly_cost: cost,
-          opens_doors_to: ["B.Tech Engineering", "B.Sc Data Science", "B.Arch Architecture"],
-          watch_out_for: "Maths and Physics in Class 11 get significantly harder than Class 10.",
-          backup_plan: "Switch to Commerce or BCA if PCM feels too difficult in Class 11."
-        },
-        {
-          path: "Commerce with Applied Maths",
-          honest_take: "A highly practical stream for finance and management. It avoids physics/chemistry pressure and focuses on business concepts.",
-          requires_entrance_exam: "None for school; CA Foundation or CUET later",
-          realistic_colleges: ["Commerce Senior Secondary School", "State Commerce College"],
-          avg_yearly_cost: cost,
-          opens_doors_to: ["BBA / BBS", "Chartered Accountancy", "B.Com Honors"],
-          watch_out_for: "Requires consistent analytical skills and accounting practice.",
-          backup_plan: "General Commerce without Maths if finance gets too quantitative."
-        }
-      ],
-      scholarship_to_check: scholarships.length ? scholarships[0].name : "National Scholarship Portal (NSP)",
-      one_thing_to_do_this_week: "Talk to a senior currently studying PCM or Commerce in Class 11."
-    }
-  }
-
-  const stream = form.stream || 'Commerce'
-  let options = []
-  if (stream.includes('Commerce')) {
-    options = [
-      {
-        path: "Chartered Accountancy (CA)",
-        honest_take: "Brutally challenging but highly rewarding. It is cost-effective but requires years of rigorous study. Your marks show you have the dedication.",
-        requires_entrance_exam: "CA Foundation",
-        realistic_colleges: ["ICAI Delhi/Mumbai Chapters (Correspondence)"],
-        avg_yearly_cost: "₹30,000–₹50,000/yr (Exam & coaching fees)",
-        opens_doors_to: ["Auditor", "Tax Consultant", "Chief Financial Officer (CFO)"],
-        watch_out_for: "Low passing percentage in CA Intermediate and Final exams.",
-        backup_plan: "Pursue a B.Com + MBA Finance if CA papers take too long to clear."
-      },
-      {
-        path: "BBA in Financial Analyst / Investment Banking",
-        honest_take: "Highly dynamic business degree. Focuses on management, corporate finance, and investing. Direct admissions are common, but top tier colleges require CUET or IPMAT.",
-        requires_entrance_exam: "CUET / IPMAT / SET",
-        realistic_colleges: colleges.length ? colleges.slice(0, 3).map(c => c.name) : ["Mumbai University Commerce Colleges", "Symbiosis Pune", "NMIMS Mumbai"],
-        avg_yearly_cost: "₹1,50,000–₹3,50,000/yr",
-        opens_doors_to: ["Investment Banking Analyst", "Portfolio Manager", "Corporate Consultant"],
-        watch_out_for: "Top-tier companies only hire from top-tier colleges; tier 3 college placements can be low.",
-        backup_plan: "Prepare for CAT exam to secure a good MBA program afterwards."
-      }
-    ]
-  } else if (stream.includes('PCB')) {
-    options = [
-      {
-        path: "B.Sc Biotechnology / Genetics",
-        honest_take: "Excellent research-focused stream if you want to avoid NEET pressure. Modern labs and pharmaceutical companies offer growing jobs.",
-        requires_entrance_exam: "CUET / None",
-        realistic_colleges: colleges.length ? colleges.slice(0, 3).map(c => c.name) : ["St. Xavier's College", "DY Patil University", "Pune University"],
-        avg_yearly_cost: "₹80,000–₹1,50,000/yr",
-        opens_doors_to: ["Research Scientist", "Biotech Analyst", "Clinical Trial Coordinator"],
-        watch_out_for: "B.Sc is not enough; requires an M.Sc or Ph.D for senior research roles.",
-        backup_plan: "Shift to Clinical Research Management or MBA Biotechnology."
-      },
-      {
-        path: "Bachelor of Physiotherapy (BPT)",
-        honest_take: "Clinical path with direct patient care. Private clinics, hospitals, and sports centers are hiring actively.",
-        requires_entrance_exam: "State CET / NEET (some states)",
-        realistic_colleges: colleges.length ? colleges.slice(0, 3).map(c => c.name) : ["KEM Hospital Mumbai", "Dr. DY Patil Vidyapeeth", "GS Medical College"],
-        avg_yearly_cost: "₹1,20,000–₹2,50,000/yr",
-        opens_doors_to: ["Consulting Physiotherapist", "Sports Rehab Specialist", "Clinic Owner"],
-        watch_out_for: "Initial years after graduation have low starting salaries before establishing a personal practice.",
-        backup_plan: "Prepare for hospital administration diplomas."
-      }
-    ]
-  } else if (stream.includes('PCM')) {
-    options = [
-      {
-        path: "B.Tech Computer Science & AI",
-        honest_take: "The most sought-after degree in India. High placement potential if you code actively. Extremely high entry competition.",
-        requires_entrance_exam: "JEE Main / MHT-CET / COMEDK",
-        realistic_colleges: colleges.length ? colleges.slice(0, 3).map(c => c.name) : ["COEP Pune", "VJTI Mumbai", "MIT Manipal"],
-        avg_yearly_cost: "₹1,50,000–₹3,000,000/yr",
-        opens_doors_to: ["Software Engineer", "AI/ML Developer", "System Architect"],
-        watch_out_for: "Over-saturation of average engineers; you must build unique project portfolios.",
-        backup_plan: "BCA + MCA which is a faster and more affordable alternative to engineering."
-      },
-      {
-        path: "B.Sc in Data Science / Analytics",
-        honest_take: "Modern mathematical track. Focuses on Python, SQL, Statistics, and Machine Learning. Perfect alternative to B.Tech.",
-        requires_entrance_exam: "CUET / None",
-        realistic_colleges: colleges.length ? colleges.slice(0, 3).map(c => c.name) : ["IIT Madras (Online B.Sc)", "Symbiosis Pune", "NMIMS"],
-        avg_yearly_cost: "₹80,000–₹1,80,000/yr",
-        opens_doors_to: ["Data Analyst", "Business Intelligence Dev", "Database Admin"],
-        watch_out_for: "Requires strong love for mathematics and programming logic.",
-        backup_plan: "Shift to general B.Sc IT or standard web development bootcamps."
-      }
-    ]
-  } else {
-    options = [
-      {
-        path: "Integrated B.A. LL.B. (5-Year Law)",
-        honest_take: "Fabulous foundation for corporate legal teams, litigation, or judiciary prep. High-status profession but requires excellent reading and communication skills.",
-        requires_entrance_exam: "CLAT / MHCET Law / LSAT",
-        realistic_colleges: colleges.length ? colleges.slice(0, 3).map(c => c.name) : ["National Law Universities", "ILS Law College Pune", "Government Law College Mumbai"],
-        avg_yearly_cost: "₹1,00,000–₹2,50,000/yr",
-        opens_doors_to: ["Corporate Lawyer", "Legal Advisor", "Judicial Officer"],
-        watch_out_for: "Long, demanding study hours and low starting pay in early litigation.",
-        backup_plan: "Pursue general B.A. followed by a 3-year LL.B. program."
-      },
-      {
-        path: "B.Des in Graphic or UI/UX Design",
-        honest_take: "Creative stream focusing on digital products, branding, and user interface. Excellent industry demand.",
-        requires_entrance_exam: "UCEED / NID DAT / College Portfolio",
-        realistic_colleges: colleges.length ? colleges.slice(0, 3).map(c => c.name) : ["NIFT Mumbai", "MIT Institute of Design", "Srishti School of Art and Design"],
-        avg_yearly_cost: "₹1,80,000–₹4,00,000/yr",
-        opens_doors_to: ["UI/UX Designer", "Product Designer", "Art Director"],
-        watch_out_for: "Requires a strong digital portfolio rather than just book learning.",
-        backup_plan: "Take online professional certifications in UI/UX while doing a normal B.A."
-      }
-    ]
-  }
-
-  return {
-    summary: `Hi ${name}, based on your ${stream} background and ${form.marks}% marks, you have solid career directions. We have filtered target colleges matching your location preferences in ${form.state || 'India'} and matched scholarships to suit family income levels.`,
-    options,
-    scholarship_to_check: scholarships.length ? scholarships[0].name : "Post-Matric Scholarship Scheme",
-    one_thing_to_do_this_week: "Look up the syllabus of the entrance exams mentioned above and check their application timelines."
-  }
-}
-
 function getMockRoadmap(form, option) {
   const pathName = option?.path || 'Selected Career'
   return {
@@ -1076,62 +932,6 @@ function getMockRoadmap(form, option) {
     ]
   }
 }
-
-// Helper to call Groq and parse JSON output (with structured latency logging)
-async function callGemini(prompt, { studentId = null, callType = 'guidance' } = {}) {
-  const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
-  const promptTokenEstimate = Math.ceil(prompt.length / 4)
-  const start = Date.now()
-  let parseOk = false
-  try {
-    const client = getGroqClient()
-    const completion = await client.chat.completions.create({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.7,
-      max_tokens: 2048,
-      response_format: { type: 'json_object' },
-    })
-    const text = completion.choices[0].message.content
-    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-    const result = JSON.parse(cleaned)
-    parseOk = true
-    const latencyMs = Date.now() - start
-    console.log(JSON.stringify({ ts: new Date().toISOString(), event: 'ai_call', callType, model, promptTokens: promptTokenEstimate, latencyMs, parseOk, studentId }))
-    return result
-  } catch (err) {
-    const latencyMs = Date.now() - start
-    console.error(JSON.stringify({ ts: new Date().toISOString(), event: 'ai_call_error', callType, model, promptTokens: promptTokenEstimate, latencyMs, parseOk, studentId, error: err.message }))
-    
-    console.warn(`[WARN] AI API call failed: ${err.message}. Falling back to high-quality local mock data...`)
-    
-    if (callType === 'guidance') {
-      const isClass10 = prompt.includes('Class 10 Student')
-      const marksMatch = prompt.match(/-\s*Marks:\s*(\d+)%/)
-      const marks = marksMatch ? marksMatch[1] : '85'
-      const stateMatch = prompt.match(/-\s*State:\s*([^\n]+)/)
-      const state = stateMatch ? stateMatch[1].trim() : 'Maharashtra'
-      const streamMatch = prompt.match(/-\s*Stream:\s*([^\n]+)/)
-      const stream = streamMatch ? streamMatch[1].trim() : 'Commerce'
-      
-      const simulatedForm = {
-        classLevel: isClass10 ? 'class10' : 'class12',
-        marks,
-        state,
-        stream,
-        fullName: 'Student'
-      }
-      return getMockGuidance(simulatedForm, [], [])
-    } else if (callType === 'roadmap') {
-      const pathMatch = prompt.match(/career as a "([^"]+)"/) || prompt.match(/leaning as a "([^"]+)"/)
-      const careerPath = pathMatch ? pathMatch[1] : 'Selected Path'
-      return getMockRoadmap({}, { path: careerPath })
-    }
-    
-    throw err
-  }
-}
-
 
 // --- Endpoints ---
 
@@ -1542,9 +1342,18 @@ app.post('/api/roadmap', validateRoadmapBody, roadmapLimiter, async (req, res) =
       }
     }
 
-    // Call Gemini if not cached
+    // Call the shared LLM client if not cached
     const prompt = buildRoadmapPrompt(formData, option)
-    const result = await callGemini(prompt)
+    let result
+    try {
+      result = await callLLM(prompt, { json: true, maxTokens: 2048, temperature: 0.7, callType: 'roadmap', studentId: user?.id || null })
+    } catch (aiErr) {
+      // A missing key is a configuration problem, not a transient AI outage —
+      // let the outer catch surface it as a 401 instead of serving a mock.
+      if (aiErr.code === 'NO_API_KEY' || aiErr.message === 'NO_API_KEY') throw aiErr
+      console.warn('[Roadmap] AI generation failed, falling back to mock:', aiErr.message)
+      result = getMockRoadmap(formData, option)
+    }
 
     // Save to DB if authenticated
     if (user) {
@@ -1752,7 +1561,7 @@ app.post('/api/generate-career-path', async (req, res) => {
 
   try {
     const prompt = buildCustomCareerPathPrompt(profession, formData || {})
-    const result = await callGemini(prompt, { callType: 'custom_career' })
+    const result = await callLLM(prompt, { json: true, maxTokens: 2048, temperature: 0.7, callType: 'custom_career' })
     res.json(result)
   } catch (err) {
     console.warn('[CustomCareerPath] AI generation failed, falling back to mock:', err.message)
@@ -2709,16 +2518,37 @@ app.get('/api/college-details', async (req, res) => {
   }
 
   try {
-    // 1. Try Supabase first
+    // 1. Try Supabase first — FULL-NAME match only.
+    //    Tier 1: case-insensitive exact match on the whole name.
+    //    Tier 2: the whole name as an ilike pattern (never the first word), and
+    //            only accepted when it resolves to a single unambiguous row.
+    //    Anything less confident is treated as "no DB match" and falls through
+    //    to the AI path — returning a same-first-word institution's fees or
+    //    cutoffs as authoritative data is worse than returning nothing.
     if (isSupabaseConfigured()) {
-      const { data, error } = await supabase
+      const pattern = escapeIlikePattern(name)
+      let match = null
+
+      const { data: exactRows, error: exactError } = await supabase
         .from('colleges')
         .select('*')
-        .ilike('name', `%${name.split(' ')[0]}%`)
-        .limit(1)
+        .ilike('name', pattern)
+        .limit(5)
 
-      if (!error && data && data.length > 0) {
-        const c = data[0]
+      if (!exactError) match = pickCollegeMatch(exactRows, name)
+
+      if (!match) {
+        const { data: fuzzyRows, error: fuzzyError } = await supabase
+          .from('colleges')
+          .select('*')
+          .ilike('name', `%${pattern}%`)
+          .limit(5)
+
+        if (!fuzzyError) match = pickCollegeMatch(fuzzyRows, name)
+      }
+
+      if (match) {
+        const c = match
         return res.json({
           source: 'database',
           fullName: c.name,
@@ -2742,7 +2572,9 @@ app.get('/api/college-details', async (req, res) => {
     try { aiClient = new UnifiedAIClient() } catch { return res.json({ source: 'not_found' }) }
 
     const prompt = `You are an educational information expert. Provide a concise factsheet for this Indian college: "${name}"
-    
+
+    If you do not have reliable, specific information about THIS institution's fees, cutoffs, or placements, return null for that field. Do not estimate, generalize, or reuse figures from other institutions or from a generic 'typical Indian college' template.
+
     Respond ONLY with valid JSON in this exact structure (use null for unknown fields):
     {
       "fullName": "Full official name",

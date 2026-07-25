@@ -4,79 +4,122 @@
  * Runs endpoints validation, rate limiters checks, and input schema tests.
  * Uses Node's built-in test runner (available in Node 18+).
  *
+ * Boots a real server as a child process on an OS-assigned free port and waits
+ * on /api/health for readiness. Startup wait is configurable via
+ * TEST_SERVER_START_TIMEOUT_MS (default 60000) so the suite stays reliable when
+ * it runs alongside the rest of the files under `node --test`.
+ *
  * Usage:
  *   cd server
- *   node test.js
+ *   node test.js            # or: npm run test:integration
  */
 
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert'
 import { spawn } from 'node:child_process'
+import net from 'node:net'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-let TEST_PORT = 5001
-let BASE_URL = `http://localhost:${TEST_PORT}`
 
+// How long to wait for the child server to become reachable. Generous by
+// default because this file also runs under `node --test`, where ~26 test
+// files compete for CPU and a cold Express boot can take well over 10s.
+const START_TIMEOUT_MS = Number(process.env.TEST_SERVER_START_TIMEOUT_MS || 60000)
+
+let BASE_URL = ''
 let serverProcess
+// Buffered child output. Deliberately NOT echoed line-by-line: this file's
+// stdout is the test runner's own (V8-serialized) reporting channel, and
+// funnelling a server log firehose through it is a source of corrupted frames.
+// The buffer is only surfaced when startup fails, where it's actually useful.
+const serverOutput = []
 
-// Start server on port 5001 before running tests
-before(async () => {
+function recordOutput(label, data) {
+  serverOutput.push(`[${label}] ${data.toString().trim()}`)
+  if (serverOutput.length > 200) serverOutput.shift()
+}
+
+// Ask the OS for a free port instead of hardcoding 5001, which collides with a
+// locally running dev server or a second concurrent test run.
+function findFreePort() {
   return new Promise((resolve, reject) => {
-    console.log(`🚀 Starting test server...`)
-    serverProcess = spawn('node', ['index.js'], {
-      cwd: __dirname,
-      env: {
-        ...process.env,
-        PORT: TEST_PORT,
-        SUPABASE_SERVICE_ROLE_KEY: ''
-      }
+    const probe = net.createServer()
+    probe.unref()
+    probe.on('error', reject)
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address()
+      probe.close(() => resolve(port))
     })
-
-    let resolved = false
-
-    serverProcess.stdout.on('data', (data) => {
-      const output = data.toString()
-      console.log(`[Server Stdout]: ${output.trim()}`)
-      const match = output.match(/Server listening on port (\d+)/)
-      if (match) {
-        const detectedPort = parseInt(match[1], 10)
-        BASE_URL = `http://localhost:${detectedPort}`
-        if (!resolved) {
-          resolved = true
-          resolve()
-        }
-      }
-    })
-
-    serverProcess.stderr.on('data', (data) => {
-      console.error(`[Server Stderr]: ${data}`)
-    })
-
-    serverProcess.on('error', (err) => {
-      if (!resolved) {
-        resolved = true
-        reject(err)
-      }
-    })
-
-    // Timeout safety
-    setTimeout(() => {
-      if (!resolved) {
-        resolved = true
-        reject(new Error('Server start timed out after 10 seconds'))
-      }
-    }, 10000)
   })
+}
+
+async function waitForHealth(url, deadline) {
+  let lastError
+  while (Date.now() < deadline) {
+    if (serverProcess.exitCode !== null || serverProcess.signalCode !== null) {
+      throw new Error(
+        `Test server exited early (code=${serverProcess.exitCode}, signal=${serverProcess.signalCode})\n` +
+        serverOutput.join('\n')
+      )
+    }
+    try {
+      const res = await fetch(`${url}/api/health`)
+      if (res.status === 200) return
+      lastError = new Error(`health check returned ${res.status}`)
+    } catch (err) {
+      lastError = err
+    }
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  throw new Error(
+    `Test server did not become ready within ${START_TIMEOUT_MS}ms ` +
+    `(last error: ${lastError && lastError.message})\n` +
+    serverOutput.join('\n')
+  )
+}
+
+before(async () => {
+  const port = await findFreePort()
+  BASE_URL = `http://127.0.0.1:${port}`
+
+  // Strip the parent test-runner's own environment before handing it to the
+  // grandchild. NODE_TEST_CONTEXT in particular makes a plain `node index.js`
+  // believe it is a test-runner child and emit serialized reporter frames.
+  const childEnv = { ...process.env }
+  delete childEnv.NODE_TEST_CONTEXT
+  delete childEnv.NODE_OPTIONS
+  delete childEnv.NODE_V8_COVERAGE
+  childEnv.PORT = String(port)
+  childEnv.SUPABASE_SERVICE_ROLE_KEY = ''
+
+  serverProcess = spawn(process.execPath, ['index.js'], {
+    cwd: __dirname,
+    env: childEnv,
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+
+  serverProcess.stdout.on('data', (data) => recordOutput('server stdout', data))
+  serverProcess.stderr.on('data', (data) => recordOutput('server stderr', data))
+
+  const spawnFailure = new Promise((_, reject) => {
+    serverProcess.once('error', reject)
+  })
+
+  await Promise.race([
+    waitForHealth(BASE_URL, Date.now() + START_TIMEOUT_MS),
+    spawnFailure
+  ])
 })
 
-// Stop server after tests finish
-after(() => {
-  if (serverProcess) {
-    console.log('🔌 Stopping test server...')
-    serverProcess.kill()
-  }
+// Stop server after tests finish, and wait for it to actually go away so its
+// pipes are closed before this process starts tearing down.
+after(async () => {
+  if (!serverProcess || serverProcess.exitCode !== null) return
+  const exited = new Promise((resolve) => serverProcess.once('exit', resolve))
+  serverProcess.kill()
+  await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))])
 })
 
 // ─── Test Suite ───────────────────────────────────────────────────────────────

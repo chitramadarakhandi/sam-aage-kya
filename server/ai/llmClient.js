@@ -12,7 +12,13 @@
  *     the provider returns 429 (rate_limit), we "open" the breaker and stop
  *     making calls until it resets. Callers can check isAiAvailable() and show
  *     an honest "AI busy" message instead of silently serving mock data.
- *   • Provider fallback (Groq → OpenAI) when a key is present.
+ *   • Provider fallback (Groq → Gemini → OpenRouter → OpenAI) when a key is
+ *     present. The chain is built from key presence in buildProviderChain(),
+ *     which is also the single source of truth for isAiAvailable()/getAiStatus().
+ *   • Structured per-call telemetry: one `ai_call` JSON line per successful
+ *     call and one `ai_call_error` line per terminal failure, plus one
+ *     `ai_call_attempt` line whenever a provider attempt fails and we fall
+ *     through to the next provider (so fallbacks are visible).
  *
  *  IMPORTANT: this module must be import-safe BEFORE dotenv runs, so it never
  *  reads process.env at module-load time — only inside functions.
@@ -57,21 +63,36 @@ function closeBreaker() {
   console.log('[llm] circuit breaker CLOSED. AI calls resumed.')
 }
 
+/**
+ * Is ANY provider key configured? Derived from buildProviderChain() so the
+ * availability check can never drift from the chain that actually gets called.
+ */
+function hasAnyProviderKey() {
+  return buildProviderChain().length > 0
+}
+
+/** One structured telemetry line. Cheap: JSON.stringify to stdout/stderr only. */
+function logAiEvent(event, fields, isError = false) {
+  const line = JSON.stringify({ ts: new Date().toISOString(), event, ...fields })
+  if (isError) console.error(line)
+  else console.log(line)
+}
+
 /** Is the AI usable right now? Auto-closes the breaker after cooldown. */
 export function isAiAvailable() {
   rolloverIfNewDay()
   if (breaker.open && Date.now() - breaker.openedAt > breaker.cooldownMs) {
     closeBreaker()
   }
-  // No key configured at all → not available.
-  if (!process.env.GROQ_API_KEY && !process.env.OPENAI_API_KEY) return false
+  // No key configured for ANY provider in the chain → not available.
+  if (!hasAnyProviderKey()) return false
   return !breaker.open
 }
 
 /** Public status for the frontend "AI busy" banner. */
 export function getAiStatus() {
   const available = isAiAvailable()
-  const anyKey = process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY || process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY
+  const anyKey = hasAnyProviderKey()
   return {
     available,
     reason: available ? null : (breaker.reason || (!anyKey ? 'no_key' : 'busy')),
@@ -85,11 +106,29 @@ export function getAiStatus() {
  * Core LLM call. Returns parsed JSON (default) or raw text.
  * Throws 'AI_UNAVAILABLE' when the breaker is open, and opens the breaker on 429.
  */
-export async function callLLM(prompt, { json = true, maxTokens = 800, temperature = 0.2, modelOverride = null } = {}) {
+export async function callLLM(prompt, {
+  json = true,
+  maxTokens = 800,
+  temperature = 0.2,
+  modelOverride = null,
+  // Optional call attribution — purely for telemetry, never required.
+  callType = 'unspecified',
+  studentId = null,
+} = {}) {
+  const startedAt = Date.now()
+  const promptTokens = estimateTokens(prompt)
+  // Fields present on every line this call emits.
+  const ctx = { callType, studentId, promptTokens }
+
   rolloverIfNewDay()
   if (!isAiAvailable()) {
     const err = new Error('AI_UNAVAILABLE')
     err.code = 'AI_UNAVAILABLE'
+    logAiEvent('ai_call_error', {
+      ...ctx, provider: null, model: null, attempts: 0,
+      latencyMs: Date.now() - startedAt, parseOk: false,
+      error: err.message, code: err.code,
+    }, true)
     throw err
   }
 
@@ -102,13 +141,27 @@ export async function callLLM(prompt, { json = true, maxTokens = 800, temperatur
     openBreaker('no_key')
     const err = new Error('NO_API_KEY')
     err.code = 'NO_API_KEY'
+    logAiEvent('ai_call_error', {
+      ...ctx, provider: null, model: null, attempts: 0,
+      latencyMs: Date.now() - startedAt, parseOk: false,
+      error: err.message, code: err.code,
+    }, true)
     throw err
   }
 
   let anyRateLimited = false
   let lastError = null
+  let attempt = 0
+  let lastProviderTried = null
+  let lastModelTried = null
 
   for (const p of providers) {
+    attempt += 1
+    lastProviderTried = p.name
+    lastModelTried = p.model
+    const attemptStartedAt = Date.now()
+    const attemptCtx = { ...ctx, provider: p.name, model: p.model, attempt }
+
     const body = {
       model: p.model,
       messages: [{ role: 'user', content: prompt }],
@@ -122,11 +175,19 @@ export async function callLLM(prompt, { json = true, maxTokens = 800, temperatur
 
       if (res.status === 429) {
         anyRateLimited = true
+        logAiEvent('ai_call_attempt', {
+          ...attemptCtx, latencyMs: Date.now() - attemptStartedAt, ok: false,
+          status: 429, parseOk: false, error: 'rate_limited',
+        }, true)
         console.warn(`[llm] ${p.name} rate-limited (429) — trying next provider…`)
         continue // fall through to the next provider
       }
       if (!res.ok) {
         lastError = new Error(`${p.name} error ${res.status}: ${(await res.text()).slice(0, 160)}`)
+        logAiEvent('ai_call_attempt', {
+          ...attemptCtx, latencyMs: Date.now() - attemptStartedAt, ok: false,
+          status: res.status, parseOk: false, error: lastError.message,
+        }, true)
         console.warn(`[llm] ${lastError.message} — trying next provider…`)
         continue
       }
@@ -137,11 +198,29 @@ export async function callLLM(prompt, { json = true, maxTokens = 800, temperatur
       breaker.lastProvider = p.name
 
       const text = data.choices?.[0]?.message?.content ?? ''
-      if (!json) return text
+      const reportedTotalTokens = data.usage?.total_tokens ?? null
+      if (!json) {
+        logAiEvent('ai_call', {
+          ...attemptCtx, totalTokens: reportedTotalTokens,
+          latencyMs: Date.now() - attemptStartedAt,
+          totalLatencyMs: Date.now() - startedAt, parseOk: true,
+        })
+        return text
+      }
       const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-      return JSON.parse(cleaned)
+      const parsed = JSON.parse(cleaned)
+      logAiEvent('ai_call', {
+        ...attemptCtx, totalTokens: reportedTotalTokens,
+        latencyMs: Date.now() - attemptStartedAt,
+        totalLatencyMs: Date.now() - startedAt, parseOk: true,
+      })
+      return parsed
     } catch (err) {
       lastError = err
+      logAiEvent('ai_call_attempt', {
+        ...attemptCtx, latencyMs: Date.now() - attemptStartedAt, ok: false,
+        parseOk: false, error: err.message,
+      }, true)
       console.warn(`[llm] ${p.name} call failed: ${err.message} — trying next provider…`)
       continue
     }
@@ -152,9 +231,20 @@ export async function callLLM(prompt, { json = true, maxTokens = 800, temperatur
     openBreaker('rate_limit')
     const err = new Error('AI_RATE_LIMITED')
     err.code = 'AI_RATE_LIMITED'
+    logAiEvent('ai_call_error', {
+      ...ctx, provider: lastProviderTried, model: lastModelTried, attempts: attempt,
+      latencyMs: Date.now() - startedAt, parseOk: false,
+      error: err.message, code: err.code,
+    }, true)
     throw err
   }
-  throw lastError || new Error('All AI providers failed')
+  const err = lastError || new Error('All AI providers failed')
+  logAiEvent('ai_call_error', {
+    ...ctx, provider: lastProviderTried, model: lastModelTried, attempts: attempt,
+    latencyMs: Date.now() - startedAt, parseOk: false,
+    error: err.message, code: err.code || null,
+  }, true)
+  throw err
 }
 
 /**
