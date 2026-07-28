@@ -19,7 +19,7 @@
   - Mark task complete when test is written, run, and failure is documented
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 1.10, 1.11, 1.12_
 
-- [ ] 2. Write preservation property tests (BEFORE implementing fix)
+- [x] 2. Write preservation property tests (BEFORE implementing fix)
   - **Property 2: Preservation** - Unrelated Branches, Non-Mismatched Honest-Take, Non-Empty-College Cost, Non-Low-Income Cards
   - **IMPORTANT**: Follow observation-first methodology
   - Create `server/agents/Orchestrator.optionCardIntegrity.preservation.test.js`
@@ -37,9 +37,9 @@
   - Mark task complete when tests are written, run, and passing on unfixed code
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12_
 
-- [ ] 3. Fix for per-option card integrity (institution mismatch, exam claim, cost sharing, missing aid)
+- [x] 3. Fix for per-option card integrity (institution mismatch, exam claim, cost sharing, missing aid)
 
-  - [ ] 3.1 Split the shared medical fallback bucket in `runCollegeRecommendationAgent` (`server/agents/Orchestrator.js`)
+  - [x] 3.1 Split the shared medical fallback bucket in `runCollegeRecommendationAgent` (`server/agents/Orchestrator.js`)
     - Add `NO_VERIFIED_INSTITUTION_MATCH_NOTE` exported constant near the top of the file (module scope), e.g. `'No verified institution match for this specific program — only stream-level (not degree-specific) college data is available today.'`
     - Inside the existing `.map(opt => ...)` in `runCollegeRecommendationAgent`, compute `const pathLower = (opt.path || '').toLowerCase()` and `const isBiotechLike = opt.path_id === 'bsc_biotech' || (pathLower.includes('biotech') && !pathLower.includes('mbbs'))` and `const isPhysiotherapyLike = opt.path_id === 'bpt_physiotherapy' || pathLower.includes('physiotherapy')`
     - When either is true, return `{ path_id: opt.path_id, path: opt.path, colleges: [], programMatchNote: NO_VERIFIED_INSTITUTION_MATCH_NOTE }` immediately, BEFORE the `retrievedColleges.length > 0` branch is consulted — this must short-circuit ahead of the DB-retrieved-colleges path too, since DB rows are stream-tagged, not degree-tagged
@@ -49,13 +49,13 @@
     - _Preservation: genuinely NEET-gated options (doctor/neet/mbbs) keep AIIMS New Delhi / Madras Medical College unchanged (Property 5 in design)_
     - _Requirements: 2.1, 2.2, 2.3, 3.11_
 
-  - [ ] 3.2 Correct the `bsc_biotech` fallback's `honest_take` text in `runCareerRecommendationAgent` (`server/agents/Orchestrator.js`)
+  - [x] 3.2 Correct the `bsc_biotech` fallback's `honest_take` text in `runCareerRecommendationAgent` (`server/agents/Orchestrator.js`)
     - Replace the PCB fallback's `bsc_biotech` `honest_take` (`"Great research and lab-oriented career. Avoids NEET pressure but requires higher education to secure top roles."`) with text that does not name NEET at all, e.g. `"Great research and lab-oriented career via CUET/merit admission. An M.Sc or Ph.D is usually needed to secure top roles."`
     - _Bug_Condition: isExamClaimBug for the specific hardcoded bsc_biotech honest_take_
     - _Expected_Behavior: honest_take names only exams consistent with requires_entrance_exam ("CUET / None") (Property 2 in design)_
     - _Requirements: 2.4_
 
-  - [ ] 3.3 Add `sanitizeExamMismatchInHonestTake` to `server/agents/Orchestrator.js`, exporting `escapeRegExp` from `server/config/streams.js`
+  - [x] 3.3 Add `sanitizeExamMismatchInHonestTake` to `server/agents/Orchestrator.js`, exporting `escapeRegExp` from `server/config/streams.js`
     - In `server/config/streams.js`, change the existing private `function escapeRegExp(s) {...}` to `export function escapeRegExp(s) {...}` (no behavior change)
     - In `server/agents/Orchestrator.js`, import `escapeRegExp` alongside the existing `EXAM_VOCABULARY`/`detectExamsInText`/`pathOnExamTrack`/`textNamesExam` imports from `../config/streams.js`
     - Add exported pure function `sanitizeExamMismatchInHonestTake(rec)` that: computes `identity = pathIdentityText(rec)` (reuse existing helper), `requirement = String(rec.requires_entrance_exam || '').toLowerCase()`, `namedExams = detectExamsInText(rec.honest_take)`; for each `examId` in `namedExams`, if `!pathOnExamTrack(identity, examId) && !textNamesExam(requirement, examId)`, replace every word-boundary occurrence of that exam's aliases (from `EXAM_VOCABULARY[examId].aliases`, regex built with `escapeRegExp`) in `rec.honest_take` with `"the relevant entrance exam"`
@@ -65,7 +65,7 @@
     - _Preservation: honest_take is returned byte-identical when every named exam is on-track or matches requires_entrance_exam (Property 5 in design)_
     - _Requirements: 2.4, 2.5, 2.6, 3.4_
 
-  - [ ] 3.4 Wire the exam sanitizer into `assembleGuidanceResponse` (`server/agents/Orchestrator.js`)
+  - [x] 3.4 Wire the exam sanitizer into `assembleGuidanceResponse` (`server/agents/Orchestrator.js`)
     - Inside the `options.map` in `assembleGuidanceResponse`, compute `const { honestTake: sanitizedHonestTake } = sanitizeExamMismatchInHonestTake(opt)` and use `sanitizedHonestTake` in place of `opt.honest_take` when building the returned option object
     - This applies on both the LLM-success path and the fallback path, since both flow through the same `assembleGuidanceResponse` join
     - _Bug_Condition: isExamClaimBug applies identically regardless of which agent produced honest_take_
@@ -73,7 +73,7 @@
     - _Preservation: consistent honest_take text is surfaced verbatim (Property 5 in design)_
     - _Requirements: 2.5, 3.11_
 
-  - [ ] 3.5 Replace the shared hardcoded cost literal and add `institution_match_note` in `assembleGuidanceResponse` (`server/agents/Orchestrator.js`)
+  - [x] 3.5 Replace the shared hardcoded cost literal and add `institution_match_note` in `assembleGuidanceResponse` (`server/agents/Orchestrator.js`)
     - Add exported constant `COST_DATA_UNAVAILABLE = 'Cost data not available for this specific program yet.'` near the top of the file
     - Change the class12 `costStr` fallback from `dedupedColleges.length ? dedupedColleges[0].feeRange : '₹80,000–₹1,50,000/yr'` to `dedupedColleges.length ? dedupedColleges[0].feeRange : COST_DATA_UNAVAILABLE`
     - Add `institution_match_note: (mappedCol && mappedCol.programMatchNote) || null` to the returned option object
@@ -82,7 +82,7 @@
     - _Preservation: options with real institution data are completely unaffected (Property 5 in design)_
     - _Requirements: 2.7, 2.8, 3.7, 3.10_
 
-  - [ ] 3.6 Add `buildFinancialAidSection` and wire it into `assembleGuidanceResponse` (`server/agents/Orchestrator.js`)
+  - [x] 3.6 Add `buildFinancialAidSection` and wire it into `assembleGuidanceResponse` (`server/agents/Orchestrator.js`)
     - Add exported constant `LOW_INCOME_AID_TRIGGER = 'below_2.5L'` near the top of the file
     - Add exported pure function `buildFinancialAidSection(formData, state)` that returns `null` unless `formData.incomeRange === LOW_INCOME_AID_TRIGGER`; otherwise returns `{ income_band: formData.incomeRange, schemes: schemes }` where `schemes` is `state.scholarshipRecommendations.map(s => ({ name: s.name, eligibility: s.eligibility, application_url: s.applicationUrl }))` when non-empty, or `[{ name: FALLBACK_SCHOLARSHIP_NAME, eligibility: null, application_url: null }]` when empty
     - Inside `assembleGuidanceResponse`, compute `const financialAid = buildFinancialAidSection(formData, state)` once before the `options.map`, then inside the map spread `...(financialAid ? { financial_aid: financialAid } : {})` into each returned option object
@@ -91,7 +91,7 @@
     - _Preservation: no financial_aid key for any other incomeRange (Property 6 in design)_
     - _Requirements: 2.9, 2.10, 2.11, 2.12, 3.5, 3.6_
 
-  - [ ] 3.7 Verify bug condition exploration test now passes
+  - [x] 3.7 Verify bug condition exploration test now passes
     - **Property 1: Expected Behavior** - Institution List Matches Admission Pathway, Honest-Take Exam Claim, Per-Option Cost, Financial Aid
     - **IMPORTANT**: Re-run the SAME test from task 1 - do NOT write a new test
     - The test from task 1 encodes the expected behavior for all four defects
@@ -100,14 +100,14 @@
     - **EXPECTED OUTCOME**: Test PASSES (confirms all four defects are fixed: biotech/physio return empty college lists with a match note regardless of source; the biotech honest_take no longer misnames NEET; zero-college options show the explicit unavailable marker instead of a shared literal; below_2.5L responses carry financial_aid on every option)
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 2.12_
 
-  - [ ] 3.8 Verify preservation tests still pass
+  - [x] 3.8 Verify preservation tests still pass
     - **Property 2: Preservation** - Unrelated Branches, Non-Mismatched Honest-Take, Non-Empty-College Cost, Non-Low-Income Cards
     - **IMPORTANT**: Re-run the SAME tests from task 2 - do NOT write new tests
     - Run preservation property tests from step 2
     - **EXPECTED OUTCOME**: Tests PASS (confirms no regressions — NEET-gated medical options, commerce/arts fallbacks, consistent honest_take text, non-empty-college cost derivation, non-low-income cards, and class10 behavior are all unchanged)
     - Confirm all tests still pass after fix (no regressions)
 
-- [ ] 4. Checkpoint - Ensure all tests pass
+- [x] 4. Checkpoint - Ensure all tests pass
   - Run the full test suite (`npm test` in `server/`) to confirm both exploration and preservation tests pass
   - Verify no other tests were broken by the changes (e.g. `Orchestrator.ranking.test.js`, `Orchestrator.dedupRegion.*.test.js`, `Orchestrator.bugCondition.test.js`, `Orchestrator.preservation.test.js`, `Orchestrator.evidenceGuardrail.test.js`, `Orchestrator.pipeline.test.js`)
   - Confirm the total suite count grew (new files added) with 0 failures

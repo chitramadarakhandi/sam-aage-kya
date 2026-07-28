@@ -99,6 +99,8 @@ const CONCERNS = [
 // ─── MentorCard ──────────────────────────────────────────────────────────────
 
 function MentorCard({ mentor, index, isBestMatch, onChat }) {
+  const bookingLink = mentor.cal_link || mentor.calLink
+  const hasBookingLink = !!bookingLink && bookingLink.trim() !== '#'
   return (
     <div
       className={`glass-card flex flex-col hover:scale-[1.02] transition-all duration-300 overflow-hidden group animate-slide-up relative ${
@@ -187,9 +189,9 @@ function MentorCard({ mentor, index, isBestMatch, onChat }) {
 
         {/* CTAs */}
         <div className="grid grid-cols-2 gap-2">
-          {mentor.cal_link || mentor.calLink ? (
+          {hasBookingLink ? (
             <a
-              href={mentor.cal_link || mentor.calLink}
+              href={bookingLink}
               target="_blank"
               rel="noreferrer"
               className="btn-outline text-xs py-2.5 text-center flex items-center justify-center gap-1.5"

@@ -2117,15 +2117,15 @@ Write a warm parent briefing. Include: 1. Why this suits your child, 2. Expected
 
     let parentSummaryText
     try {
-      const groqClient = getGroqClient()
-      const completion = await groqClient.chat.completions.create({
-        model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-        messages: [{ role: 'user', content: parentPrompt }],
+      const text = await callLLM(parentPrompt, {
+        json: false,
+        maxTokens: 512,
         temperature: 0.6,
-        max_tokens: 512,
+        modelOverride: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+        callType: 'parent_summary',
+        studentId: user.id,
       })
-      parentSummaryText = completion.choices[0].message.content.trim()
-      console.log(JSON.stringify({ ts: new Date().toISOString(), event: 'ai_call', callType: 'parent_summary', studentId: user.id, latencyMs: 0 }))
+      parentSummaryText = text.trim()
     } catch (err) {
       console.error('Parent summary AI call error:', err.message)
       console.warn(`[WARN] Parent summary AI call failed. Falling back to mock summary...`)
@@ -2476,9 +2476,6 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
   }
 
   try {
-    const client = getGroqClient()
-    const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
-    
     let systemPrompt = CHAT_SYSTEM_PROMPT
     if (profile) {
       systemPrompt += `\n\nCURRENT STUDENT PROFILE CONTEXT:
@@ -2492,20 +2489,19 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
 You MUST use this context when answering the student's questions. For example, if they ask for stream recommendations and they are in Class 10 with 85% marks, you can give tailored advice directly instead of triggering a handoff (since you already have the profile info!). Only trigger handoff (handoff=true) if they ask a highly specific personalized question whose required details are NOT in the profile above.`
     }
 
-    const completion = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...validMessages,
-      ],
+    const conversationLines = validMessages
+      .map(m => `${m.role === 'assistant' ? 'Assistant' : 'Student'}: ${m.content}`)
+      .join('\n')
+
+    const fullPrompt = `${systemPrompt}\n\nCONVERSATION SO FAR:\n${conversationLines}\n\nRespond to the latest student message per the RESPONSE FORMAT rules above.`
+
+    const result = await callLLM(fullPrompt, {
+      json: true,
+      maxTokens: 512,
       temperature: 0.5,
-      max_tokens: 512,
-      response_format: { type: 'json_object' },
+      modelOverride: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+      callType: 'chat',
     })
-    const text = completion.choices[0].message.content
-    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-    const result = JSON.parse(cleaned)
-    console.log(JSON.stringify({ ts: new Date().toISOString(), event: 'ai_call', callType: 'chat', model, handoff: result.handoff }))
     res.json({
       message: result.message || 'Sorry, I couldn\'t generate a response. Please try again.',
       handoff: result.handoff === true,
@@ -2584,9 +2580,6 @@ app.get('/api/college-details', async (req, res) => {
     }
 
     // 2. AI-generated fallback for unknown colleges
-    let aiClient
-    try { aiClient = new UnifiedAIClient() } catch { return res.json({ source: 'not_found' }) }
-
     const prompt = `You are an educational information expert. Provide a concise factsheet for this Indian college: "${name}"
 
     If you do not have reliable, specific information about THIS institution's fees, cutoffs, or placements, return null for that field. Do not estimate, generalize, or reuse figures from other institutions or from a generic 'typical Indian college' template.
@@ -2617,18 +2610,13 @@ app.get('/api/college-details', async (req, res) => {
       "reviews": "One line student review or general reputation note"
     }`
 
-    const response = await aiClient.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.1,
-      max_tokens: 700,
-      response_format: { type: 'json_object' }
-    })
-
-    const text = response.choices[0].message.content
-    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
-    const parsed = JSON.parse(cleaned)
-    return res.json({ ...parsed, source: 'ai_generated' })
+    try {
+      const parsed = await callLLM(prompt, { json: true, maxTokens: 700, temperature: 0.1, callType: 'college_details' })
+      return res.json({ ...parsed, source: 'ai_generated' })
+    } catch (err) {
+      console.warn('[college-details] AI fallback unavailable:', err.message)
+      return res.json({ source: 'not_found' })
+    }
   } catch (err) {
     console.error('College details error:', err.message)
     return res.json({ source: 'error', fullName: name })

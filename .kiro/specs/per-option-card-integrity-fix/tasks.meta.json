@@ -34,6 +34,16 @@
         "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
         "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
         "timestamp": 1785233474392
+      },
+      {
+        "executionId": "6c830eb6-c34e-4185-8a39-77bb60dbc934",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785251699479
+      },
+      {
+        "executionId": "6c830eb6-c34e-4185-8a39-77bb60dbc934",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785251792486
       }
     ],
     "3.1 Split the shared medical fallback bucket in `runCollegeRecommendationAgent` (`server/agents/Orchestrator.js`)": [
@@ -41,6 +51,11 @@
         "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
         "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
         "timestamp": 1785231456721
+      },
+      {
+        "executionId": "6c830eb6-c34e-4185-8a39-77bb60dbc934",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785251845004
       }
     ],
     "3.2 Correct the `bsc_biotech` fallback's `honest_take` text in `runCareerRecommendationAgent` (`server/agents/Orchestrator.js`)": [
@@ -48,6 +63,11 @@
         "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
         "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
         "timestamp": 1785231456748
+      },
+      {
+        "executionId": "6c830eb6-c34e-4185-8a39-77bb60dbc934",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785251855127
       }
     ],
     "3.3 Add `sanitizeExamMismatchInHonestTake` to `server/agents/Orchestrator.js`, exporting `escapeRegExp` from `server/config/streams.js`": [
@@ -55,6 +75,11 @@
         "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
         "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
         "timestamp": 1785231456778
+      },
+      {
+        "executionId": "6c830eb6-c34e-4185-8a39-77bb60dbc934",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785251863081
       }
     ],
     "3.4 Wire the exam sanitizer into `assembleGuidanceResponse` (`server/agents/Orchestrator.js`)": [
@@ -62,6 +87,11 @@
         "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
         "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
         "timestamp": 1785231456824
+      },
+      {
+        "executionId": "6c830eb6-c34e-4185-8a39-77bb60dbc934",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785251871589
       }
     ],
     "3.5 Replace the shared hardcoded cost literal and add `institution_match_note` in `assembleGuidanceResponse` (`server/agents/Orchestrator.js`)": [
@@ -69,6 +99,11 @@
         "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
         "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
         "timestamp": 1785231456852
+      },
+      {
+        "executionId": "6c830eb6-c34e-4185-8a39-77bb60dbc934",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785251878991
       }
     ],
     "3.6 Add `buildFinancialAidSection` and wire it into `assembleGuidanceResponse` (`server/agents/Orchestrator.js`)": [
@@ -76,6 +111,11 @@
         "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
         "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
         "timestamp": 1785231456882
+      },
+      {
+        "executionId": "6c830eb6-c34e-4185-8a39-77bb60dbc934",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785251886389
       }
     ],
     "3.7 Verify bug condition exploration test now passes": [
@@ -83,6 +123,11 @@
         "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
         "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
         "timestamp": 1785231456911
+      },
+      {
+        "executionId": "6c830eb6-c34e-4185-8a39-77bb60dbc934",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785251893016
       }
     ],
     "3.8 Verify preservation tests still pass": [
@@ -90,6 +135,11 @@
         "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
         "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
         "timestamp": 1785231456942
+      },
+      {
+        "executionId": "6c830eb6-c34e-4185-8a39-77bb60dbc934",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785251899703
       }
     ],
     "4. Checkpoint - Ensure all tests pass": [
@@ -97,6 +147,23 @@
         "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
         "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
         "timestamp": 1785231456977
+      },
+      {
+        "executionId": "6c830eb6-c34e-4185-8a39-77bb60dbc934",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785251906160
+      },
+      {
+        "executionId": "6c830eb6-c34e-4185-8a39-77bb60dbc934",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785251913665
+      }
+    ],
+    "3. Fix for per-option card integrity (institution mismatch, exam claim, cost sharing, missing aid)": [
+      {
+        "executionId": "6c830eb6-c34e-4185-8a39-77bb60dbc934",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785251899741
       }
     ]
   }

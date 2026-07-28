@@ -15,6 +15,7 @@ export default function MentorChat({ mentor, onClose, onSignInRequest }) {
   const [text, setText]         = useState('')
   const [loading, setLoading]   = useState(true)
   const [sending, setSending]   = useState(false)
+  const [sessionError, setSessionError] = useState(false)
   const bottomRef = useRef(null)
   const channelRef = useRef(null)
 
