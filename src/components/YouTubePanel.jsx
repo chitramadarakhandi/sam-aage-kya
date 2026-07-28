@@ -319,6 +319,12 @@ export function getVideosForCountry(countryId) {
 
 function VideoCard({ video, index }) {
   const [playing, setPlaying] = useState(false)
+  // If a video is unavailable/removed (invalid id → its thumbnail 404s), we
+  // stop pretending it's a real embed and turn the card into a YouTube search
+  // for the exact title + channel, which reliably lands on a matching video.
+  const [broken, setBroken] = useState(false)
+
+  const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(`${video.title} ${video.channel}`)}`
 
   return (
     <motion.div
@@ -327,7 +333,24 @@ function VideoCard({ video, index }) {
       transition={{ delay: index * 0.1 }}
       className="group relative rounded-2xl overflow-hidden border border-white/10 hover:border-saffron/30 transition-all duration-300 bg-white/[0.03]"
     >
-      {playing ? (
+      {broken ? (
+        <a
+          href={searchUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="relative w-full flex flex-col items-center justify-center gap-2 bg-black/60 rounded-t-xl"
+          style={{ paddingBottom: '56.25%' }}
+        >
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+            <div className="w-12 h-12 rounded-full bg-red-600/90 flex items-center justify-center">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+              </svg>
+            </div>
+            <span className="text-xs font-semibold text-white">Watch on YouTube →</span>
+          </div>
+        </a>
+      ) : playing ? (
         <div className="relative w-full" style={{ paddingBottom: '56.25%' }}>
           <iframe
             className="absolute inset-0 w-full h-full rounded-t-xl"
@@ -346,6 +369,13 @@ function VideoCard({ video, index }) {
           <img
             src={`https://img.youtube.com/vi/${video.id}/hqdefault.jpg`}
             alt={video.title}
+            onError={() => setBroken(true)}
+            onLoad={(e) => {
+              // YouTube serves a gray 120x90 placeholder (HTTP 200) for
+              // invalid/removed video IDs. A real hqdefault thumbnail is 480px
+              // wide, so a narrow image means the video isn't available.
+              if (e.target.naturalWidth && e.target.naturalWidth <= 120) setBroken(true)
+            }}
             className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-80 group-hover:opacity-100"
           />
           <div className="absolute inset-0 flex items-center justify-center">

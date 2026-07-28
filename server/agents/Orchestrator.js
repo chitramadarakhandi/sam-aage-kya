@@ -1128,6 +1128,22 @@ export async function runCollegeRecommendationAgent(state) {
               feeRange: "₹1,28,000–₹2,15,000/yr",
               admissionMode: "Merit / Direct",
               whyFit: "Highly respected institution for business and commerce studies."
+            },
+            {
+              name: "Christ University",
+              city: "Bangalore",
+              state: "Karnataka",
+              feeRange: "₹1,00,000–₹2,00,000/yr",
+              admissionMode: "Christ Entrance Test / Merit",
+              whyFit: "Strong commerce and management programs with good placements."
+            },
+            {
+              name: "Loyola College",
+              city: "Chennai",
+              state: "Tamil Nadu",
+              feeRange: "₹40,000–₹90,000/yr",
+              admissionMode: "Merit / Entrance",
+              whyFit: "Reputed autonomous college known for commerce and affordable fees."
             }
           ]
         } else if (pathId.includes('humanities') || pathId.includes('arts') ||
@@ -1148,6 +1164,22 @@ export async function runCollegeRecommendationAgent(state) {
               feeRange: "₹92,000–₹1,72,000/yr",
               admissionMode: "CUET / Entrance",
               whyFit: "Historical institution renowned for arts and liberal education."
+            },
+            {
+              name: "Hindu College",
+              city: "Delhi",
+              state: "Delhi",
+              feeRange: "₹40,000–₹80,000/yr",
+              admissionMode: "CUET",
+              whyFit: "Top Delhi University college for humanities and social sciences."
+            },
+            {
+              name: "Fergusson College",
+              city: "Pune",
+              state: "Maharashtra",
+              feeRange: "₹15,000–₹60,000/yr",
+              admissionMode: "Merit / Entrance",
+              whyFit: "Historic autonomous college with strong arts programs and low fees."
             }
           ]
         } else if (pathLower.includes('doctor') || pathLower.includes('neet') || pathLower.includes('mbbs')) {
@@ -1167,6 +1199,22 @@ export async function runCollegeRecommendationAgent(state) {
               feeRange: "₹48,000–₹1,02,000/yr",
               admissionMode: "NEET-UG",
               whyFit: "Respected state-run medical institution offering affordable learning."
+            },
+            {
+              name: "Christian Medical College (CMC) Vellore",
+              city: "Vellore",
+              state: "Tamil Nadu",
+              feeRange: "₹48,000–₹3,00,000/yr",
+              admissionMode: "NEET-UG",
+              whyFit: "One of India's most respected medical colleges with excellent clinical training."
+            },
+            {
+              name: "Maulana Azad Medical College",
+              city: "Delhi",
+              state: "Delhi",
+              feeRange: "₹10,000–₹90,000/yr",
+              admissionMode: "NEET-UG",
+              whyFit: "Top government medical college with very low fees and strong reputation."
             }
           ]
         } else {
@@ -1187,6 +1235,22 @@ export async function runCollegeRecommendationAgent(state) {
               feeRange: "₹1,95,000–₹3,15,000/yr",
               admissionMode: "PESSAT / KCET",
               whyFit: "Premium infrastructure and direct corporate recruiter partnerships."
+            },
+            {
+              name: "BMS College of Engineering",
+              city: "Bangalore",
+              state: "Karnataka",
+              feeRange: "₹1,60,000–₹2,40,000/yr",
+              admissionMode: "KCET / COMEDK",
+              whyFit: "Legacy engineering institution with strong Bangalore industry connections."
+            },
+            {
+              name: "Dayananda Sagar College of Engineering",
+              city: "Bangalore",
+              state: "Karnataka",
+              feeRange: "₹1,20,000–₹2,00,000/yr",
+              admissionMode: "KCET / COMEDK / Mgmt",
+              whyFit: "Large private college with good placement support across branches."
             }
           ]
         }
@@ -1195,7 +1259,7 @@ export async function runCollegeRecommendationAgent(state) {
           path_id: opt.path_id,
           path: opt.path,
           colleges: retrievedColleges.length > 0
-            ? retrievedColleges.slice(0, 3).map(c => ({
+            ? retrievedColleges.slice(0, 6).map(c => ({
                 name: c.name,
                 city: c.city,
                 state: c.state,

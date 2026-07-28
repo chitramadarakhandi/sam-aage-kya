@@ -19,37 +19,55 @@ export default function MentorChat({ mentor, onClose, onSignInRequest }) {
   const bottomRef = useRef(null)
   const channelRef = useRef(null)
 
+  // Sample/fallback mentors (shown when the DB has none) use string ids like
+  // "fallback-1", which are not valid UUIDs and can't be a chat_sessions
+  // foreign key. Detect them so we show a friendly message instead of a
+  // silently-broken chat box.
+  const isUuid = (v) =>
+    typeof v === 'string' &&
+    /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(v)
+  const isSampleMentor = !isUuid(mentor.id)
+
   // ── Get or create a chat session ────────────────────────────
   const initSession = useCallback(async () => {
     if (!user) return
+    if (isSampleMentor) { setLoading(false); return }
     setLoading(true)
+    setSessionError(false)
 
-    // Upsert session (unique on student_id + mentor_id)
-    const { data: sess, error } = await supabase
-      .from('chat_sessions')
-      .upsert(
-        { student_id: user.id, mentor_id: mentor.id },
-        { onConflict: 'student_id,mentor_id', ignoreDuplicates: false }
-      )
-      .select()
-      .single()
-
-    if (error) {
-      // If upsert fails (duplicate), fetch existing
-      const { data: existing } = await supabase
+    try {
+      // Upsert session (unique on student_id + mentor_id)
+      const { data: sess, error } = await supabase
         .from('chat_sessions')
+        .upsert(
+          { student_id: user.id, mentor_id: mentor.id },
+          { onConflict: 'student_id,mentor_id', ignoreDuplicates: false }
+        )
         .select()
-        .eq('student_id', user.id)
-        .eq('mentor_id', mentor.id)
         .single()
-      setSession(existing)
-      await loadMessages(existing?.id)
-    } else {
-      setSession(sess)
-      await loadMessages(sess.id)
+
+      if (error) {
+        // If upsert fails (e.g. duplicate), fetch the existing session
+        const { data: existing, error: fetchErr } = await supabase
+          .from('chat_sessions')
+          .select()
+          .eq('student_id', user.id)
+          .eq('mentor_id', mentor.id)
+          .single()
+        if (fetchErr || !existing) throw (fetchErr || new Error('Could not open chat session'))
+        setSession(existing)
+        await loadMessages(existing.id)
+      } else {
+        setSession(sess)
+        await loadMessages(sess.id)
+      }
+    } catch (err) {
+      console.error('Chat session error:', err.message)
+      setSessionError(true)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
-  }, [user, mentor.id])
+  }, [user, mentor.id, isSampleMentor])
 
   // ── Load existing messages ───────────────────────────────────
   const loadMessages = async (sessionId) => {
@@ -191,6 +209,33 @@ export default function MentorChat({ mentor, onClose, onSignInRequest }) {
             >
               Sign In / Sign Up →
             </button>
+          </div>
+        ) : isSampleMentor ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center gap-5">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-3xl">
+              👋
+            </div>
+            <div>
+              <h3 className="font-display font-bold text-white text-lg mb-2">Sample mentor</h3>
+              <p className="text-gray-400 text-sm leading-relaxed">
+                {mentor.name} is a sample profile shown while our verified mentor community grows.
+                Live chat opens up once real mentors join. Know someone great?
+              </p>
+            </div>
+            <a href="/mentor-apply" className="btn-primary text-sm py-3 px-6">Invite a Mentor →</a>
+          </div>
+        ) : sessionError ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center gap-5">
+            <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-3xl">
+              ⚠️
+            </div>
+            <div>
+              <h3 className="font-display font-bold text-white text-lg mb-2">Couldn&apos;t open chat</h3>
+              <p className="text-gray-400 text-sm leading-relaxed">
+                We couldn&apos;t start a chat session right now. Please try again in a moment.
+              </p>
+            </div>
+            <button onClick={initSession} className="btn-primary text-sm py-3 px-6">Try Again</button>
           </div>
         ) : loading ? (
           <div className="flex-1 flex items-center justify-center">

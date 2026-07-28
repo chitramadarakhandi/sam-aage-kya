@@ -18,6 +18,17 @@ export default function CollegeDetailCard({ collegeName, sourceUrl }) {
   const staticData = findEnrichment(collegeName)
   const displayData = staticData || aiData
 
+  // Reliable, always-working link fallbacks. When we don't have a curated or
+  // AI-provided direct URL, we point to an official-style search that reliably
+  // lands on the right destination instead of rendering a dead/blank link.
+  const websiteUrl = displayData?.website || sourceUrl ||
+    `https://www.google.com/search?q=${encodeURIComponent(collegeName + ' official website')}`
+  const linkedinUrl = displayData?.linkedin ||
+    `https://www.linkedin.com/search/results/schools/?keywords=${encodeURIComponent(collegeName)}`
+  const youtubeUrl = displayData?.youtube ||
+    `https://www.youtube.com/results?search_query=${encodeURIComponent(collegeName + ' campus review placements')}`
+  const moreInfoUrl = `https://www.google.com/search?q=${encodeURIComponent(collegeName + ' reviews placements fees admission')}`
+
   const fetchCollegeDetails = async () => {
     if (staticData || fetched || loading) return
     setLoading(true)
@@ -82,19 +93,13 @@ export default function CollegeDetailCard({ collegeName, sourceUrl }) {
                 </div>
               )}
 
-              {/* No data yet */}
+              {/* No structured data — still show the header + working links below */}
               {!loading && !displayData && (
-                <div className="text-gray-500 text-xs text-center py-2">
-                  No detailed info available for this college yet.
-                  <br />
-                  <a
-                    href={sourceUrl || `https://www.google.com/search?q=${encodeURIComponent(collegeName + ' India college details fees')}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-saffron hover:underline mt-1 inline-block"
-                  >
-                    Search on Google →
-                  </a>
+                <div className="text-gray-400 text-xs py-1">
+                  <p className="font-display font-bold text-white text-sm">{collegeName}</p>
+                  <p className="text-gray-500 mt-0.5">
+                    We don&apos;t have a detailed factsheet for this college yet — use the official links below to verify fees, cutoffs, and placements.
+                  </p>
                 </div>
               )}
 
@@ -179,48 +184,46 @@ export default function CollegeDetailCard({ collegeName, sourceUrl }) {
                     </div>
                   )}
 
-                  {/* Links */}
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {(displayData.website || sourceUrl) && (
-                      <a
-                        href={displayData.website || sourceUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-1.5 text-[10px] font-semibold bg-white/5 border border-white/10 hover:border-saffron/40 text-gray-400 hover:text-saffron px-2.5 py-1.5 rounded-lg transition-all"
-                      >
-                        🌐 Official Website
-                      </a>
-                    )}
-                    {displayData.linkedin && (
-                      <a
-                        href={displayData.linkedin}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-1.5 text-[10px] font-semibold bg-blue-500/5 border border-blue-500/15 hover:border-blue-400/40 text-blue-400 px-2.5 py-1.5 rounded-lg transition-all"
-                      >
-                        in LinkedIn
-                      </a>
-                    )}
-                    {displayData.youtube && (
-                      <a
-                        href={displayData.youtube}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-1.5 text-[10px] font-semibold bg-red-500/5 border border-red-500/15 hover:border-red-400/40 text-red-400 px-2.5 py-1.5 rounded-lg transition-all"
-                      >
-                        ▶ Videos
-                      </a>
-                    )}
-                    <a
-                      href={`https://www.google.com/search?q=${encodeURIComponent(collegeName + ' reviews placements')}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-1.5 text-[10px] font-semibold bg-white/5 border border-white/10 hover:border-white/25 text-gray-400 hover:text-white px-2.5 py-1.5 rounded-lg transition-all"
-                    >
-                      🔍 More Info
-                    </a>
-                  </div>
                 </>
+              )}
+
+              {/* Links — always rendered with reliable fallbacks so every
+                  college has working Official Website / LinkedIn / Videos / More Info. */}
+              {!loading && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <a
+                    href={websiteUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 text-[10px] font-semibold bg-white/5 border border-white/10 hover:border-saffron/40 text-gray-400 hover:text-saffron px-2.5 py-1.5 rounded-lg transition-all"
+                  >
+                    🌐 Official Website
+                  </a>
+                  <a
+                    href={linkedinUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 text-[10px] font-semibold bg-blue-500/5 border border-blue-500/15 hover:border-blue-400/40 text-blue-400 px-2.5 py-1.5 rounded-lg transition-all"
+                  >
+                    in LinkedIn
+                  </a>
+                  <a
+                    href={youtubeUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 text-[10px] font-semibold bg-red-500/5 border border-red-500/15 hover:border-red-400/40 text-red-400 px-2.5 py-1.5 rounded-lg transition-all"
+                  >
+                    ▶ Videos
+                  </a>
+                  <a
+                    href={moreInfoUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 text-[10px] font-semibold bg-white/5 border border-white/10 hover:border-white/25 text-gray-400 hover:text-white px-2.5 py-1.5 rounded-lg transition-all"
+                  >
+                    🔍 More Info
+                  </a>
+                </div>
               )}
             </div>
           </motion.div>

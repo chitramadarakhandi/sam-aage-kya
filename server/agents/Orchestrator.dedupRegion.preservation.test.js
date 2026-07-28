@@ -96,7 +96,7 @@ describe('Preservation Observation: baseline behaviors on unfixed code', () => {
 
     assert.deepStrictEqual(
       names,
-      ["Lady Shri Ram College", "St. Xavier's College Mumbai"],
+      ["Lady Shri Ram College", "St. Xavier's College Mumbai", 'Hindu College', 'Fergusson College'],
       `Expected unchanged unique humanities fallback names but got: ${JSON.stringify(names)}`
     )
 
@@ -119,7 +119,7 @@ describe('Preservation Observation: baseline behaviors on unfixed code', () => {
 
     assert.deepStrictEqual(
       mapping.colleges.map(c => c.name),
-      ['RV College of Engineering', 'PES University']
+      ['RV College of Engineering', 'PES University', 'BMS College of Engineering', 'Dayananda Sagar College of Engineering']
     )
     assert.equal(
       mapping.colleges[0].whyFit,
@@ -145,7 +145,7 @@ describe('Preservation Observation: baseline behaviors on unfixed code', () => {
 
     assert.deepStrictEqual(
       mapping.colleges.map(c => c.name),
-      ['RV College of Engineering', 'PES University'],
+      ['RV College of Engineering', 'PES University', 'BMS College of Engineering', 'Dayananda Sagar College of Engineering'],
       `Low-budget student with no in-region match must still see the unchanged fallback, ` +
       `NOT a substitution — got: ${JSON.stringify(mapping.colleges.map(c => c.name))}`
     )
@@ -174,10 +174,10 @@ describe('Preservation Observation: baseline behaviors on unfixed code', () => {
 
   /**
    * Observation 4 — retrievedColleges.length > 0 (any budget) returns colleges
-   * sourced solely from retrievedColleges.slice(0, 3), unaffected by budget or
+   * sourced solely from retrievedColleges.slice(0, 6), unaffected by budget or
    * region.
    */
-  test('Observation 4: retrievedColleges present sources output solely from retrievedColleges.slice(0, 3)', async () => {
+  test('Observation 4: retrievedColleges present sources output solely from retrievedColleges.slice(0, 6)', async () => {
     const retrieved = [
       { name: 'College A', city: 'Pune', state: 'Maharashtra', yearly_cost_min: 100000, yearly_cost_max: 200000 },
       { name: 'College B', city: 'Nagpur', state: 'Maharashtra', yearly_cost_min: 90000, yearly_cost_max: 180000 },
@@ -194,7 +194,7 @@ describe('Preservation Observation: baseline behaviors on unfixed code', () => {
 
     assert.deepStrictEqual(
       mapping.colleges.map(c => c.name),
-      ['College A', 'College B', 'College C']
+      ['College A', 'College B', 'College C', 'College D']
     )
     // No trace of the fallback/region-swap logic — never "NIT Patna", never RV/PES.
     const names = mapping.colleges.map(c => c.name)
@@ -336,7 +336,7 @@ describe('Preservation Property: Dedup & Region-Swap Fix', () => {
           const resultB = await runCollegeRecommendationAgent(stateB)
 
           assert.deepStrictEqual(resultA.mappings[0].colleges, resultB.mappings[0].colleges)
-          // Sourced solely from retrievedColleges.slice(0, 3) — never NIT Patna/RV/PES.
+          // Sourced solely from retrievedColleges.slice(0, 6) — never NIT Patna/RV/PES.
           const names = resultA.mappings[0].colleges.map(c => c.name)
           assert.ok(!names.includes('NIT Patna'))
         }
@@ -373,9 +373,9 @@ describe('Preservation Property: Dedup & Region-Swap Fix', () => {
 
           assert.deepStrictEqual(
             names,
-            ['RV College of Engineering', 'PES University'],
+            ['RV College of Engineering', 'PES University', 'BMS College of Engineering', 'Dayananda Sagar College of Engineering'],
             `budget="${budget}", preferredState="${preferredState}", preferredCity="${preferredCity}" ` +
-            `must keep RV College of Engineering/PES University unchanged but got: ${JSON.stringify(names)}`
+            `must keep the default engineering fallback unchanged but got: ${JSON.stringify(names)}`
           )
           assert.ok(!names.includes('NIT Patna'))
           assert.equal(mapping.colleges[0].whyFit, 'Top-tier college offering excellent tech exposure and placements.')

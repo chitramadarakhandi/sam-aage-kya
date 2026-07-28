@@ -16,6 +16,7 @@ export default function Navbar() {
     { to: onboardingLink, label: 'Get Started' },
     { to: '/career-pipeline', label: 'Careers' },
     { to: '/competitive-exams', label: 'Exams' },
+    { to: '/online-education', label: 'Learn Online' },
     { to: '/scholarships', label: 'Scholarships' },
     { to: '/study-abroad', label: 'Abroad' },
     { to: '/mentors',    label: 'Mentors' },

@@ -26,6 +26,7 @@ import Scholarships from './pages/Scholarships'
 import CollegeOverview from './pages/CollegeOverview'
 import MentorApplication from './pages/MentorApplication'
 import Explore from './pages/Explore'
+import OnlineEducation from './pages/OnlineEducation'
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { user, profile, loading } = useAuth()
@@ -101,6 +102,7 @@ function AnimatedRoutes() {
 
         {/* New Public Routes */}
         <Route path="/competitive-exams" element={<CompetitiveExams />} />
+        <Route path="/online-education"  element={<OnlineEducation />} />
         <Route path="/study-abroad"      element={<StudyAbroad />} />
         <Route path="/career-pipeline"   element={<CareerPipeline />} />
         <Route path="/scholarships"      element={<Scholarships />} />

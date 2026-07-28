@@ -1851,7 +1851,7 @@ const HARDCODED_MENTORS = [
     stream: 'PCB → ECE',
     stream_category: 'Science (PCB)',
     city: 'Bengaluru',
-    cal_link: 'https://calendly.com/rahul-s-mentor/20min',
+    cal_link: '',
     story: "I missed NEET by 8 marks. Ended up in ECE. Here's what I wish someone told me.",
     tags: ['NEET dropout', 'Bio to Engineering', 'Career pivot'],
     gradient: 'from-blue-500/30 to-blue-600/10',
@@ -1869,7 +1869,7 @@ const HARDCODED_MENTORS = [
     stream: 'PCM → CSE',
     stream_category: 'Science (PCM)',
     city: 'Mangaluru',
-    cal_link: 'https://calendly.com/priya-m-mentor/20min',
+    cal_link: '',
     story: "First in my family to leave home for college. It was terrifying. I'll tell you exactly what helped.",
     tags: ['First-gen student', 'Hostel life', 'Scholarships'],
     gradient: 'from-purple-500/30 to-purple-600/10',
@@ -1887,7 +1887,7 @@ const HARDCODED_MENTORS = [
     stream: 'Commerce',
     stream_category: 'Commerce',
     city: 'Pune',
-    cal_link: 'https://calendly.com/arjun-k-mentor/20min',
+    cal_link: '',
     story: "Family wanted CA. I wanted something else. Here's how I navigated that conversation.",
     tags: ['Family pressure', 'Commerce', 'Non-CA path'],
     gradient: 'from-emerald-500/30 to-emerald-600/10',
@@ -1905,7 +1905,7 @@ const HARDCODED_MENTORS = [
     stream: 'Class 10 → Humanities',
     stream_category: 'Class 10 / Stream Selection',
     city: 'Delhi',
-    cal_link: 'https://calendly.com/anjali-d-mentor/20min',
+    cal_link: '',
     story: "I spent months stressing over whether to take PCM or Arts. I chose Arts and it was the best decision of my life. Let's figure out what fits you.",
     tags: ['Stream selection', 'Humanities', 'Parent pressure'],
     gradient: 'from-amber-500/30 to-amber-600/10',
@@ -1943,16 +1943,18 @@ app.get('/api/mentors', async (req, res) => {
 })
 
 const validateApplyBody = (req, res, next) => {
-  const { name, email, college, degree, stream, story } = req.body
-  if (!name || !email || !college || !degree || !stream || !story) {
-    return res.status(400).json({ error: 'BAD_REQUEST', message: 'Missing required fields' })
+  const { name, email, story } = req.body
+  // name/email/story are the only hard requirements; the two application forms
+  // differ in whether they send college/degree/stream vs profession/stream_category.
+  if (!name || !email || !story) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'Name, email and your story are required.' })
   }
   next()
 }
 
 app.post('/api/mentors/apply', validateApplyBody, mentorApplyLimiter, async (req, res) => {
   try {
-    const { name, email, college, degree, stream, story } = req.body
+    const { name, email, college, degree, stream, story, profession, streamExpertise, yearsExp, calLink, linkedIn } = req.body
 
 
     if (!supabaseAdmin || !isSupabaseConfigured()) {
@@ -1965,10 +1967,15 @@ app.post('/api/mentors/apply', validateApplyBody, mentorApplyLimiter, async (req
       .insert({
         name,
         email,
-        college,
-        degree,
-        stream_transition: stream,
+        college: college || '',
+        degree: degree || '',
+        stream_transition: stream || '',
         story,
+        profession: profession || '',
+        stream_category: streamExpertise || '',
+        experience_years: parseInt(yearsExp, 10) || 0,
+        cal_link: calLink || '',
+        linkedin: linkedIn || '',
         status: 'pending'
       })
 
@@ -2731,13 +2738,15 @@ app.post('/api/admin/mentor-applications/:id/approve', requireRole('admin'), asy
       .insert({
         name: app.name,
         initials,
-        college: app.college,
-        degree: app.degree,
-        stream: app.stream_transition || 'General',
-        stream_category: 'Other',
+        college: app.college || app.profession || 'N/A',
+        degree: app.degree || app.profession || 'N/A',
+        stream: app.stream_transition || app.stream_category || 'General',
+        stream_category: app.stream_category || 'Other',
         city: 'Online',
+        cal_link: app.cal_link || '',
+        linkedin: app.linkedin || '',
         story: app.story,
-        tags: [app.degree, 'Approved'],
+        tags: [app.degree || app.profession || 'Mentor', 'Approved'],
         available: true,
         ...chosenStyle
       })

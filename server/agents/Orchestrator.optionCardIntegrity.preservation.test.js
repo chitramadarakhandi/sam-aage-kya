@@ -90,7 +90,7 @@ describe('Preservation Observation: baseline behaviors on unfixed code', () => {
 
     assert.deepStrictEqual(
       mapping.colleges.map(c => c.name),
-      ['AIIMS New Delhi', 'Madras Medical College']
+      ['AIIMS New Delhi', 'Madras Medical College', 'Christian Medical College (CMC) Vellore', 'Maulana Azad Medical College']
     )
     assert.equal(mapping.colleges[0].admissionMode, 'NEET-UG')
     assert.equal(
@@ -113,11 +113,11 @@ describe('Preservation Observation: baseline behaviors on unfixed code', () => {
 
     assert.deepStrictEqual(
       result.mappings[0].colleges.map(c => c.name),
-      ['Shri Ram College of Commerce', 'Symbiosis College of Arts and Commerce']
+      ['Shri Ram College of Commerce', 'Symbiosis College of Arts and Commerce', 'Christ University', 'Loyola College']
     )
     assert.deepStrictEqual(
       result.mappings[1].colleges.map(c => c.name),
-      ['Lady Shri Ram College', "St. Xavier's College Mumbai"]
+      ['Lady Shri Ram College', "St. Xavier's College Mumbai", 'Hindu College', 'Fergusson College']
     )
   })
 

@@ -241,6 +241,11 @@ function OptionCard({ option, index, formData, collegesData }) {
   const accentMap = ['text-blue-400', 'text-purple-400', 'text-emerald-400']
   const bgMap = ['bg-blue-500/8', 'bg-purple-500/8', 'bg-emerald-500/8']
   const [showCoursePanel, setShowCoursePanel] = useState(false)
+  const [showAllColleges, setShowAllColleges] = useState(false)
+
+  const allColleges = option.realistic_colleges || []
+  const visibleColleges = showAllColleges ? allColleges : allColleges.slice(0, 3)
+  const hiddenCount = allColleges.length - visibleColleges.length
 
   return (
     <motion.div
@@ -293,7 +298,7 @@ function OptionCard({ option, index, formData, collegesData }) {
           </p>
           <p className="text-gray-500 text-[10px] mb-2 italic">Click each college for fees, cutoffs & more ↓</p>
           <ul className="space-y-1">
-            {(option.realistic_colleges || []).map((c, i) => {
+            {visibleColleges.map((c, i) => {
               const dbEntry = collegesData?.[c]
               return (
                 <li key={i}>
@@ -305,6 +310,17 @@ function OptionCard({ option, index, formData, collegesData }) {
               )
             })}
           </ul>
+
+          {/* Explore more colleges — reveals the remaining matched colleges,
+              each expandable to the same fees/cutoffs/links detail card. */}
+          {allColleges.length > 3 && (
+            <button
+              onClick={() => setShowAllColleges(v => !v)}
+              className="mt-2 flex items-center gap-1.5 text-xs font-semibold text-saffron hover:text-saffron-light bg-saffron/10 hover:bg-saffron/15 border border-saffron/25 rounded-lg px-3 py-1.5 transition-all"
+            >
+              <span>{showAllColleges ? '▲ Show fewer colleges' : `＋ Explore ${hiddenCount} more college${hiddenCount > 1 ? 's' : ''}`}</span>
+            </button>
+          )}
         </div>
 
         <div>
@@ -374,9 +390,15 @@ function OptionCard({ option, index, formData, collegesData }) {
 }
 
 function ScholarshipBox({ scholarship, scholarshipData }) {
-  // If we have verified DB data, use the real application URL; otherwise fall back to text only
-  const applyUrl = scholarshipData?.application_url
+  // Prefer the verified DB application URL. When it's missing, fall back to an
+  // official-search link (National Scholarship Portal for govt schemes, else a
+  // targeted Google search on the exact scheme name) so the button always works.
+  const rawUrl = scholarshipData?.application_url
   const deadline = scholarshipData?.deadline_pattern
+  const isValidUrl = typeof rawUrl === 'string' && /^https?:\/\//i.test(rawUrl)
+  const applyUrl = isValidUrl
+    ? rawUrl
+    : `https://www.google.com/search?q=${encodeURIComponent((scholarship || 'scholarship') + ' official application apply India')}`
 
   return (
     <div
@@ -392,20 +414,19 @@ function ScholarshipBox({ scholarship, scholarshipData }) {
         {deadline && (
           <p className="text-gray-500 text-xs mt-1">⏰ Deadline: {deadline}</p>
         )}
-        {applyUrl ? (
-          <a
-            href={applyUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 hover:border-emerald-400/40 rounded-lg px-3 py-1.5 transition-all"
-          >
-            Apply / Learn More
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
-          </a>
-        ) : (
-          <p className="text-gray-500 text-xs mt-2">Search this exact name on the National Scholarship Portal (scholarships.gov.in)</p>
+        <a
+          href={applyUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 mt-3 text-xs font-semibold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 hover:border-emerald-400/40 rounded-lg px-3 py-1.5 transition-all"
+        >
+          {isValidUrl ? 'Apply / Learn More' : 'Find Official Application'}
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+        </a>
+        {!isValidUrl && (
+          <p className="text-gray-500 text-[11px] mt-2">Tip: also check the National Scholarship Portal — scholarships.gov.in</p>
         )}
       </div>
     </div>
@@ -519,18 +540,35 @@ function MentorTeaserBox({ mentor }) {
         <p className="text-gray-300 text-sm mt-2.5 leading-relaxed italic">&ldquo;{mentor.story}&rdquo;</p>
       </div>
       <div className="w-full sm:w-auto flex-shrink-0 pt-2 sm:pt-0">
-        <a
-          href={mentor.cal_link}
-          target="_blank"
-          rel="noreferrer"
-          className="btn-primary py-3 px-6 text-sm flex items-center justify-center gap-2 group/btn w-full sm:w-auto text-center"
-        >
-          <span>Book Free Call</span>
-          <svg className="w-4 h-4 group-hover/btn:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </a>
-        <p className="text-center text-gray-600 text-[10px] mt-1.5">20 min · Completely free</p>
+        {mentor.cal_link && mentor.cal_link.trim() !== '#' ? (
+          <>
+            <a
+              href={mentor.cal_link}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-primary py-3 px-6 text-sm flex items-center justify-center gap-2 group/btn w-full sm:w-auto text-center"
+            >
+              <span>Book Free Call</span>
+              <svg className="w-4 h-4 group-hover/btn:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </a>
+            <p className="text-center text-gray-600 text-[10px] mt-1.5">20 min · Completely free</p>
+          </>
+        ) : (
+          <>
+            <Link
+              to="/mentors"
+              className="btn-primary py-3 px-6 text-sm flex items-center justify-center gap-2 group/btn w-full sm:w-auto text-center"
+            >
+              <span>Connect with a Mentor</span>
+              <svg className="w-4 h-4 group-hover/btn:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+            <p className="text-center text-gray-600 text-[10px] mt-1.5">Chat free on the Mentors page</p>
+          </>
+        )}
       </div>
     </div>
   )
