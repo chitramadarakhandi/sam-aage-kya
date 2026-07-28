@@ -302,7 +302,7 @@ export default function StudyAbroad() {
               </div>
 
               {/* Curated YouTube Video Guides */}
-              <YouTubePanel topic="study_abroad" title={`Curated Video Guides for Study Abroad`} className="mt-6" />
+              <YouTubePanel topic={`study_abroad_${country.id}`} title={`Curated Video Guides for ${country.name}`} className="mt-6" />
 
               {/* Disclaimer */}
               <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-5 flex items-start gap-3 mt-6">

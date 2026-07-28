@@ -56,6 +56,113 @@ export const EXAM_STREAM_MAP = Object.freeze({
 })
 
 /**
+ * EXAM VOCABULARY FOR FIT RANKING.
+ *
+ * Deliberately a SEPARATE map from EXAM_STREAM_MAP above:
+ *  - EXAM_STREAM_MAP drives detectStreamExamMismatch and its exact key set is
+ *    part of that behaviour — adding keys there (e.g. CUET) would change which
+ *    stream/exam pairs get reported as mismatches.
+ *  - This map answers two different questions, used by recommendation ranking:
+ *      aliases       → "did the student NAME this exam?" (matched against the
+ *                      student's own profile text only)
+ *      trackKeywords → "is this recommendation ON that exam's track?" (matched
+ *                      against the recommendation's path name / path_id only)
+ *
+ * Keeping those two questions on different fields is what stops naive substring
+ * matching: prose like "Avoids NEET pressure" lives in a recommendation's
+ * honest_take, which neither side ever consults.
+ */
+export const EXAM_VOCABULARY = Object.freeze({
+  neet: Object.freeze({
+    label: 'NEET',
+    aliases: Object.freeze(['neet', 'neet-ug', 'neet ug']),
+    trackKeywords: Object.freeze([
+      'mbbs', 'bds', 'dental', 'dentist', 'ayush', 'bams', 'bhms', 'bums',
+      'ayurved', 'homeopath', 'unani', 'siddha', 'medicine', 'medical',
+      'surgeon', 'surgery', 'veterinary', 'bvsc',
+    ]),
+  }),
+  jee: Object.freeze({
+    label: 'JEE',
+    aliases: Object.freeze(['jee', 'jee main', 'jee mains', 'jee advanced', 'iit jee', 'iit-jee']),
+    trackKeywords: Object.freeze([
+      'b.tech', 'btech', 'b tech', 'b.e.', 'bachelor of engineering', 'engineering',
+    ]),
+  }),
+  clat: Object.freeze({
+    label: 'CLAT',
+    aliases: Object.freeze(['clat', 'ailet', 'lsat india']),
+    trackKeywords: Object.freeze(['llb', 'law', 'legal', 'judiciary']),
+  }),
+  'ca foundation': Object.freeze({
+    label: 'CA Foundation',
+    aliases: Object.freeze(['ca foundation', 'ca-foundation', 'chartered accountancy', 'chartered accountant']),
+    trackKeywords: Object.freeze(['chartered accountan', 'ca_finance', '(ca)', 'accountancy']),
+  }),
+  nift: Object.freeze({
+    label: 'NIFT',
+    aliases: Object.freeze(['nift']),
+    trackKeywords: Object.freeze(['fashion', 'textile', 'nift']),
+  }),
+  uceed: Object.freeze({
+    label: 'UCEED',
+    aliases: Object.freeze(['uceed', 'ceed', 'nid dat']),
+    trackKeywords: Object.freeze(['b.des', 'bdes', 'design']),
+  }),
+  nata: Object.freeze({
+    label: 'NATA',
+    aliases: Object.freeze(['nata']),
+    trackKeywords: Object.freeze(['b.arch', 'barch', 'architect']),
+  }),
+  cuet: Object.freeze({
+    label: 'CUET',
+    // CUET is a general university entrance, so it has no course "track" of its
+    // own — it only ever matches via a recommendation's requires_entrance_exam.
+    aliases: Object.freeze(['cuet']),
+    trackKeywords: Object.freeze([]),
+  }),
+})
+
+/** Escape a string for safe use inside a RegExp. */
+export function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * True if `text` names the exam `examId` as a whole word/phrase. Word-boundary
+ * matched, so a stray substring ("neetle") can never count as a mention.
+ */
+export function textNamesExam(text, examId) {
+  const entry = EXAM_VOCABULARY[examId]
+  if (!entry || !text) return false
+  const haystack = String(text).toLowerCase()
+  return entry.aliases.some((alias) =>
+    new RegExp(`(^|[^a-z0-9])${escapeRegExp(alias)}([^a-z0-9]|$)`, 'i').test(haystack)
+  )
+}
+
+/**
+ * Which exams does this text explicitly name? Returns canonical ids in
+ * EXAM_VOCABULARY declaration order (deterministic, so callers can rely on it).
+ */
+export function detectExamsInText(text) {
+  if (!text) return []
+  return Object.keys(EXAM_VOCABULARY).filter((id) => textNamesExam(text, id))
+}
+
+/**
+ * True if `pathText` (a recommendation's path name and/or path_id) sits on the
+ * exam's own course track — e.g. MBBS/BDS/AYUSH for NEET, B.Tech for JEE.
+ * Substring matching is safe here because trackKeywords are course-specific.
+ */
+export function pathOnExamTrack(pathText, examId) {
+  const entry = EXAM_VOCABULARY[examId]
+  if (!entry || !pathText) return false
+  const haystack = String(pathText).toLowerCase()
+  return entry.trackKeywords.some((kw) => haystack.includes(kw))
+}
+
+/**
  * Pre-computed bridge recommendations for known mismatch pairs.
  * Key format: "stream::exam" (both normalized).
  */

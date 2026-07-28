@@ -1,0 +1,103 @@
+{
+  "pbtResults": {
+    "1. Write bug condition exploration test": {
+      "status": "unexpected_pass",
+      "failingExample": "All 5 assertions in server/agents/Orchestrator.optionCardIntegrity.bugCondition.test.js PASSED against the current server/agents/Orchestrator.js instead of failing. Test run output: \"tests 5, pass 5, fail 0\". Root cause: Orchestrator.js (uncommitted working-tree changes, confirmed via `git diff HEAD`) already contains the full fix — NO_VERIFIED_INSTITUTION_MATCH_NOTE / isBiotechLikePath / isPhysiotherapyLikePath short-circuit in runCollegeRecommendationAgent, the corrected non-NEET bsc_biotech honest_take in runCareerRecommendationAgent, COST_DATA_UNAVAILABLE, and buildFinancialAidSection wired into assembleGuidanceResponse — so the code is not in the \"unfixed\" state the exploration test is meant to run against.",
+      "lastRunTimestamp": 1785233258819
+    }
+  },
+  "executionHistory": {
+    "1. Write bug condition exploration test": [
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785231456638
+      },
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785231481046
+      },
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785233382193
+      }
+    ],
+    "2. Write preservation property tests (BEFORE implementing fix)": [
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785231456689
+      },
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785233474392
+      }
+    ],
+    "3.1 Split the shared medical fallback bucket in `runCollegeRecommendationAgent` (`server/agents/Orchestrator.js`)": [
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785231456721
+      }
+    ],
+    "3.2 Correct the `bsc_biotech` fallback's `honest_take` text in `runCareerRecommendationAgent` (`server/agents/Orchestrator.js`)": [
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785231456748
+      }
+    ],
+    "3.3 Add `sanitizeExamMismatchInHonestTake` to `server/agents/Orchestrator.js`, exporting `escapeRegExp` from `server/config/streams.js`": [
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785231456778
+      }
+    ],
+    "3.4 Wire the exam sanitizer into `assembleGuidanceResponse` (`server/agents/Orchestrator.js`)": [
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785231456824
+      }
+    ],
+    "3.5 Replace the shared hardcoded cost literal and add `institution_match_note` in `assembleGuidanceResponse` (`server/agents/Orchestrator.js`)": [
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785231456852
+      }
+    ],
+    "3.6 Add `buildFinancialAidSection` and wire it into `assembleGuidanceResponse` (`server/agents/Orchestrator.js`)": [
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785231456882
+      }
+    ],
+    "3.7 Verify bug condition exploration test now passes": [
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785231456911
+      }
+    ],
+    "3.8 Verify preservation tests still pass": [
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785231456942
+      }
+    ],
+    "4. Checkpoint - Ensure all tests pass": [
+      {
+        "executionId": "b3bf9eed-ea4d-4987-9cc4-2f3b1d87efeb",
+        "chatSessionId": "sess_ddcca4a9-84fb-4531-8f66-2bc93ddbf6af",
+        "timestamp": 1785231456977
+      }
+    ]
+  }
+}

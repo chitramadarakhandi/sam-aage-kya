@@ -1,24 +1,28 @@
 /**
- * Preservation Property Tests — College List Dedup & Region-Swap Fix
+ * Preservation Property Tests — College List Dedup & No Hardcoded Substitution
  *
  * **Validates: Requirements 3.1, 3.2, 3.3, 3.4**
  *
  * Property 2 (design.md) / Property 4 (design.md correctness properties):
- * Preservation - Non-Duplicate Lists, Non-Low-Budget, In-Region, and
+ * Preservation - Non-Duplicate Lists, Fallback-List Content, and
  * DB-Retrieved Paths Unchanged.
  *
- * Methodology: Observation-first — we first observe what the UNFIXED code
- * returns for each of the four preservation scenarios described in
- * tasks.md step 2, then encode those observations as example-based and
- * property-based assertions. These tests MUST PASS on unfixed code, and
- * must continue to pass after the fix (task 3) is implemented (verified in
- * task 3.4).
+ * UPDATE: the low-budget "NIT Patna" region-swap behavior these tests used to
+ * assert (with or without a region check) has been REMOVED from the codebase.
+ * College-name substitution must never override real fallback data with a
+ * fixed placeholder institution, regardless of budget/region/stream. The
+ * properties below now assert the fallback list passes through UNCHANGED for
+ * every budget value, and that "NIT Patna" never appears in any output.
+ *
+ * Methodology: Observation-first — we first observe what the code returns for
+ * each preservation scenario, then encode those observations as example-based
+ * and property-based assertions.
  */
 
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fc from 'fast-check'
-import { runCollegeRecommendationAgent } from './Orchestrator.js'
+import { runCollegeRecommendationAgent, assembleGuidanceResponse } from './Orchestrator.js'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -128,6 +132,47 @@ describe('Preservation Observation: baseline behaviors on unfixed code', () => {
   })
 
   /**
+   * Observation 2b — LOW budget (below_20k / below_1L) with no in-region
+   * match also returns the untouched default engineering fallback. This is
+   * the behavior that used to be substituted to "NIT Patna" — that
+   * substitution has been removed entirely, so low budget must now behave
+   * identically to any other budget for this fallback branch.
+   */
+  test('Observation 2b: low budget with no in-region match ALSO returns untouched RV College/PES University fallback (no substitution)', async () => {
+    const state = buildCollegeAgentState({ budget: 'below_1L', preferredState: 'Kerala', preferredCity: '' })
+    const result = await runCollegeRecommendationAgent(state)
+    const mapping = result.mappings[0]
+
+    assert.deepStrictEqual(
+      mapping.colleges.map(c => c.name),
+      ['RV College of Engineering', 'PES University'],
+      `Low-budget student with no in-region match must still see the unchanged fallback, ` +
+      `NOT a substitution — got: ${JSON.stringify(mapping.colleges.map(c => c.name))}`
+    )
+    assert.equal(
+      mapping.colleges[0].whyFit,
+      'Top-tier college offering excellent tech exposure and placements.'
+    )
+    assert.equal(
+      mapping.colleges[1].whyFit,
+      'Premium infrastructure and direct corporate recruiter partnerships.'
+    )
+  })
+
+  /**
+   * Observation 5 — class10 students get an empty colleges array for every
+   * option, regardless of budget/stream, with no fallback-list computation.
+   */
+  test('Observation 5: class10 students get colleges: [] for every option', async () => {
+    const state = buildCollegeAgentState(
+      { classLevel: 'class10', budget: 'below_20k', preferredState: 'Kerala' },
+      { path_id: 'science_pcm', path: 'Science (PCM)' }
+    )
+    const result = await runCollegeRecommendationAgent(state)
+    assert.deepStrictEqual(result.mappings[0].colleges, [])
+  })
+
+  /**
    * Observation 4 — retrievedColleges.length > 0 (any budget) returns colleges
    * sourced solely from retrievedColleges.slice(0, 3), unaffected by budget or
    * region.
@@ -202,25 +247,30 @@ describe('Preservation Property: Dedup & Region-Swap Fix', () => {
   })
 
   /**
-   * Property (task 2, bullet 2, clause A): for all inputs where budget is
-   * NOT below_20k/below_1L, runCollegeRecommendationAgent's output colleges
-   * and whyFit text are identical regardless of preferredState/preferredCity.
+   * Property (task 2, bullet 2, clause A — updated): for ALL budget values
+   * (low or not) and ALL preferredState/preferredCity combinations,
+   * runCollegeRecommendationAgent's fallback-branch output colleges and
+   * whyFit text are identical — i.e. completely region- and budget-invariant.
+   * This supersedes the old "non-low-budget only" scoping now that the
+   * NIT Patna substitution has been removed entirely: budget/region must
+   * never affect which fallback colleges are returned.
    *
    * **Validates: Requirement 3.2**
    */
-  test('Property: non-low-budget output is region-invariant', async () => {
+  test('Property: fallback-branch output is budget- and region-invariant (no substitution ever happens)', async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.record({
-          budget: fc.constantFrom(...NON_LOW_BUDGETS),
+          budgetA: fc.constantFrom(...NON_LOW_BUDGETS, 'below_20k', 'below_1L'),
+          budgetB: fc.constantFrom(...NON_LOW_BUDGETS, 'below_20k', 'below_1L'),
           preferredStateA: fc.constantFrom('', 'Karnataka', 'Kerala', 'Maharashtra', 'Any State'),
           preferredCityA: fc.constantFrom('', 'Bangalore', 'Kochi', 'Pune'),
           preferredStateB: fc.constantFrom('', 'Karnataka', 'Kerala', 'Maharashtra', 'Any State'),
           preferredCityB: fc.constantFrom('', 'Bangalore', 'Kochi', 'Pune'),
         }),
-        async ({ budget, preferredStateA, preferredCityA, preferredStateB, preferredCityB }) => {
-          const stateA = buildCollegeAgentState({ budget, preferredState: preferredStateA, preferredCity: preferredCityA })
-          const stateB = buildCollegeAgentState({ budget, preferredState: preferredStateB, preferredCity: preferredCityB })
+        async ({ budgetA, budgetB, preferredStateA, preferredCityA, preferredStateB, preferredCityB }) => {
+          const stateA = buildCollegeAgentState({ budget: budgetA, preferredState: preferredStateA, preferredCity: preferredCityA })
+          const stateB = buildCollegeAgentState({ budget: budgetB, preferredState: preferredStateB, preferredCity: preferredCityB })
 
           const resultA = await runCollegeRecommendationAgent(stateA)
           const resultB = await runCollegeRecommendationAgent(stateB)
@@ -228,9 +278,12 @@ describe('Preservation Property: Dedup & Region-Swap Fix', () => {
           assert.deepStrictEqual(
             resultA.mappings[0].colleges,
             resultB.mappings[0].colleges,
-            `Non-low-budget (${budget}) output must be region-invariant but differed between ` +
-            `(${preferredStateA}/${preferredCityA}) and (${preferredStateB}/${preferredCityB})`
+            `Fallback output must be budget/region-invariant but differed between ` +
+            `(budget=${budgetA}, ${preferredStateA}/${preferredCityA}) and (budget=${budgetB}, ${preferredStateB}/${preferredCityB})`
           )
+          // Never any trace of a hardcoded substitution institution.
+          const namesA = resultA.mappings[0].colleges.map(c => c.name)
+          assert.ok(!namesA.includes('NIT Patna'), `"NIT Patna" must never appear but got: ${JSON.stringify(namesA)}`)
         }
       ),
       { numRuns: 30 }
@@ -293,45 +346,135 @@ describe('Preservation Property: Dedup & Region-Swap Fix', () => {
   })
 
   /**
-   * Property (task 2, bullet 3 / design.md Property 4 / Requirement 3.3):
-   * for low-budget inputs whose preferredState/preferredCity already matches
-   * Karnataka/Bangalore/Bengaluru (case/whitespace variants), the default
-   * engineering fallback names and whyFit remain "RV College of Engineering"
-   * / "PES University" with their original text.
-   *
-   * SCOPE NOTE: this was FALSE on unfixed code — see task 1's
-   * `Orchestrator.dedupRegion.bugCondition.test.js` Test 2, which documented
-   * it as a bug condition (unconditional swap ignoring region) rather than
-   * existing preserved behavior. Now that task 3.2's in-region check has
-   * been implemented, this scenario is genuinely true, so it is added here
-   * as a real preservation property per the task 3.4 instruction.
+   * Property (updated per Requirement 3.3 — substitution removed entirely):
+   * for ANY budget × preferredState/preferredCity combination (in-region,
+   * out-of-region, or no preference at all), the default engineering
+   * fallback names and whyFit remain "RV College of Engineering" /
+   * "PES University" with their ORIGINAL text — "NIT Patna" never appears
+   * as a possible output for any input. This sweeps budget × region
+   * combinations broadly, mirroring the style of the prior in-region-only
+   * property but widened to cover the full removal of the substitution.
    *
    * **Validates: Requirement 3.3**
    */
-  test('Property: in-region low-budget (Karnataka/Bangalore/Bengaluru variants) keeps RV College/PES University unsubstituted', async () => {
+  test('Property: NIT Patna never appears for ANY budget × region combination', async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.record({
-          budget: fc.constantFrom('below_20k', 'below_1L'),
-          preferredState: fc.constantFrom('Karnataka', 'karnataka', ' Karnataka ', 'KARNATAKA'),
-          preferredCity: fc.constantFrom('', 'Bangalore', 'bangalore', 'Bengaluru', ' Bengaluru '),
+          budget: fc.constantFrom(...NON_LOW_BUDGETS, 'below_20k', 'below_1L'),
+          preferredState: fc.constantFrom('', 'Karnataka', 'karnataka', ' Karnataka ', 'Kerala', 'Bihar', 'Any State'),
+          preferredCity: fc.constantFrom('', 'Bangalore', 'bangalore', 'Bengaluru', 'Kochi', 'Patna'),
         }),
         async ({ budget, preferredState, preferredCity }) => {
           const state = buildCollegeAgentState({ budget, preferredState, preferredCity })
           const result = await runCollegeRecommendationAgent(state)
           const mapping = result.mappings[0]
+          const names = mapping.colleges.map(c => c.name)
 
           assert.deepStrictEqual(
-            mapping.colleges.map(c => c.name),
+            names,
             ['RV College of Engineering', 'PES University'],
-            `In-region low-budget student (preferredState="${preferredState}", preferredCity="${preferredCity}") ` +
-            `must keep RV College of Engineering/PES University but got: ${JSON.stringify(mapping.colleges.map(c => c.name))}`
+            `budget="${budget}", preferredState="${preferredState}", preferredCity="${preferredCity}" ` +
+            `must keep RV College of Engineering/PES University unchanged but got: ${JSON.stringify(names)}`
           )
+          assert.ok(!names.includes('NIT Patna'))
           assert.equal(mapping.colleges[0].whyFit, 'Top-tier college offering excellent tech exposure and placements.')
           assert.equal(mapping.colleges[1].whyFit, 'Premium infrastructure and direct corporate recruiter partnerships.')
         }
       ),
       { numRuns: 30 }
     )
+  })
+
+  /**
+   * Property — class10 gate: for ANY budget/stream/path combination, when
+   * formData.classLevel === 'class10', runCollegeRecommendationAgent returns
+   * colleges: [] for every option. No fallback list is ever computed, so
+   * "NIT Patna" (or any other institution name) can never leak through for
+   * a class10 student either.
+   */
+  test('Property: class10 always returns colleges: [] regardless of budget/path', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.record({
+          budget: fc.constantFrom(...NON_LOW_BUDGETS, 'below_20k', 'below_1L'),
+          preferredState: fc.constantFrom('', 'Karnataka', 'Kerala', 'Bihar'),
+          pathId: fc.constantFrom('science_pcm', 'commerce_maths', 'arts_humanities', 'diploma_polytechnic'),
+          path: fc.constantFrom('Science (PCM)', 'Commerce with Maths', 'Arts / Humanities', 'Polytechnic Diploma (Engineering)'),
+        }),
+        async ({ budget, preferredState, pathId, path }) => {
+          const state = buildCollegeAgentState(
+            { classLevel: 'class10', budget, preferredState },
+            { path_id: pathId, path }
+          )
+          const result = await runCollegeRecommendationAgent(state)
+          assert.deepStrictEqual(result.mappings[0].colleges, [])
+        }
+      ),
+      { numRuns: 30 }
+    )
+  })
+})
+
+// ─── End-to-End: assembleGuidanceResponse for a class10 profile ────────────────
+
+describe('End-to-end: class10 profile has no colleges section but keeps the budget-band cost', () => {
+  /**
+   * Builds a completed orchestration state for a class10 student, driving the
+   * REAL runCollegeRecommendationAgent output through assembleGuidanceResponse
+   * — the same join/dedup path runMultiAgentOrchestrator uses in production.
+   */
+  async function buildClass10AssembledOptions(budget) {
+    const formData = {
+      classLevel: 'class10',
+      board: 'CBSE',
+      state: 'Maharashtra',
+      budget,
+      fullName: 'Test Student',
+    }
+    const careerPaths = {
+      recommendations: [
+        { path_id: 'science_pcm', path: 'Science (PCM)', honest_take: 'Solid gateway.', requires_entrance_exam: 'None', opens_doors_to: ['Engineering'], watch_out_for: 'Rigour.', backup_plan: 'Switch to Commerce.' },
+      ],
+    }
+    const collegeState = { formData, careerPaths, retrievedColleges: [] }
+    const collegeResult = await runCollegeRecommendationAgent(collegeState)
+
+    const state = {
+      formData,
+      profileAnalysis: { academicStanding: 'High', keyStrengths: [], keyConstraints: [] },
+      retrievedColleges: [],
+      retrievedScholarships: [],
+      careerPaths,
+      collegeRecommendations: collegeResult.mappings,
+      scholarshipRecommendations: [],
+      studyAbroadGuidance: { isFeasible: false },
+      roadmaps: [{ path_id: 'science_pcm', path: 'Science (PCM)', years: [] }],
+      mentorMatches: [],
+      youtubeResources: [],
+      finalSummary: { summary: 'Summary.', oneThingToDoThisWeek: 'Action.' },
+      executionLogs: [],
+    }
+
+    return assembleGuidanceResponse(state, formData, 5).options
+  }
+
+  test('realistic_colleges is [] for every option, and avg_yearly_cost reflects the budget band', async () => {
+    const cases = [
+      ['below_20k', '₹5,000–₹20,000/yr'],
+      ['20k-60k', '₹20,000–₹60,000/yr'],
+      ['60k-1.5L', '₹60,000–₹1,50,000/yr'],
+      ['above_1.5L', '₹1,50,000–₹2,50,000/yr'],
+    ]
+    for (const [budget, expectedCost] of cases) {
+      const options = await buildClass10AssembledOptions(budget)
+      assert.equal(options.length, 1)
+      assert.deepStrictEqual(options[0].realistic_colleges, [])
+      assert.equal(
+        options[0].avg_yearly_cost,
+        expectedCost,
+        `budget="${budget}" expected avg_yearly_cost="${expectedCost}" but got "${options[0].avg_yearly_cost}"`
+      )
+    }
   })
 })

@@ -1098,27 +1098,43 @@ app.get('/api/predictor/simulate', (req, res) => {
 //  Powers the "I don't know what to pick" discovery flow (all-India, all domains)
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Resolve + validate a classLevel value, warning (not throwing) when it's
+// missing or invalid so callers still get a sensible default response.
+function resolveClassLevel(classLevel, routeLabel) {
+  if (classLevel === 'class10' || classLevel === 'class12') return classLevel
+  if (!classLevel) {
+    console.warn(`[PathwayAdvisor] ${routeLabel} called with no classLevel param — defaulting to class12. This should be treated as a bug in the caller, not silently accepted long-term.`)
+  } else {
+    console.warn(`[PathwayAdvisor] ${routeLabel} called with invalid classLevel="${classLevel}" — defaulting to class12.`)
+  }
+  return 'class12'
+}
+
 // GET /api/pathways/questions/start — the first (broad) round of yes/no questions
 app.get('/api/pathways/questions/start', (req, res) => {
+  const resolvedClassLevel = resolveClassLevel(req.query.classLevel, 'GET /api/pathways/questions/start')
   res.json({
     stage: 'broad',
+    classLevel: resolvedClassLevel,
     instructions: 'Answer Yes / No / Not sure. There are no wrong answers.',
     domains: DOMAINS,
-    questions: QUESTION_BANK.broad.map((q) => ({ id: q.id, text: q.text })),
+    questions: (QUESTION_BANK.broad[resolvedClassLevel] || QUESTION_BANK.broad.class12).map((q) => ({ id: q.id, text: q.text })),
   })
 })
 
 // POST /api/pathways/questions/next — given broad answers, return focused follow-ups
-// body: { answers: [{ questionId, answer }] }
+// body: { answers: [{ questionId, answer }], classLevel }
 app.post('/api/pathways/questions/next', (req, res) => {
   const answers = Array.isArray(req.body.answers) ? req.body.answers : []
   if (answers.length === 0) {
     return res.status(400).json({ error: 'BAD_REQUEST', message: 'answers array required' })
   }
-  const { ranked } = scoreDomains(answers)
-  const followUps = pickFollowUpQuestions(ranked, 4)
+  const resolvedClassLevel = resolveClassLevel(req.body.classLevel, 'POST /api/pathways/questions/next')
+  const { ranked } = scoreDomains(answers, resolvedClassLevel)
+  const followUps = pickFollowUpQuestions(ranked, 4, resolvedClassLevel)
   res.json({
     stage: 'focused',
+    classLevel: resolvedClassLevel,
     topDomains: ranked.slice(0, 5),
     questions: followUps.map((q) => ({ id: q.id, text: q.text })),
     done: followUps.length === 0,

@@ -312,24 +312,51 @@ export const AFTER_CLASS_12 = [
 //   answer 'yes' adds +weight, 'no' subtracts a little, 'skip' ignores.
 
 export const QUESTION_BANK = {
-  // ── STAGE 1: broad interest mapping (asked to everyone) ──────────────────
-  broad: [
-    { id: 'q_build', text: 'Do you enjoy building, fixing, or figuring out how machines and gadgets work?', domains: { engineering: 3, computing: 1, vocational: 1 } },
-    { id: 'q_code', text: 'Would you like to create apps, games, or websites using a computer?', domains: { computing: 3, engineering: 1, design: 1 } },
-    { id: 'q_bio', text: 'Are you fascinated by the human body, health, or living things?', domains: { medical: 3, pure_science: 1, agriculture: 1 } },
-    { id: 'q_numbers', text: 'Are you comfortable working with money, numbers, and business ideas?', domains: { commerce: 3, management: 2, computing: 1 } },
-    { id: 'q_lead', text: 'Do you like leading teams, organising events, or the idea of running a business one day?', domains: { management: 3, commerce: 1, hospitality: 1 } },
-    { id: 'q_argue', text: 'Do you enjoy debating, arguing a point, or a strong sense of justice and rules?', domains: { law: 3, arts: 1 } },
-    { id: 'q_create', text: 'Do you love drawing, designing, or making things look beautiful?', domains: { design: 3, performing: 2, media: 1, architecture: 1 } },
-    { id: 'q_express', text: 'Do you enjoy writing, storytelling, speaking, or making videos?', domains: { media: 3, arts: 2, performing: 1 } },
-    { id: 'q_people', text: 'Do you like understanding people, helping them, or working with communities?', domains: { arts: 2, medical: 1, education: 2 } },
-    { id: 'q_nature', text: 'Do you care about nature, farming, animals, or the environment?', domains: { agriculture: 3, pure_science: 1 } },
-    { id: 'q_science_why', text: 'Do you love asking "why" and doing experiments to understand how things work?', domains: { pure_science: 3, engineering: 1, medical: 1 } },
-    { id: 'q_uniform', text: 'Does a disciplined career serving the country (armed forces, navy) appeal to you?', domains: { defence: 3 } },
-    { id: 'q_hands', text: 'Would you prefer learning a practical skill and starting to earn quickly, over years of study?', domains: { vocational: 3, hospitality: 1 } },
-    { id: 'q_teach', text: 'Do you enjoy explaining things to others or the idea of teaching?', domains: { education: 3, arts: 1 } },
-    { id: 'q_travel', text: 'Does a career involving travel, hospitality, aviation, or tourism excite you?', domains: { hospitality: 3 } },
-  ],
+  // ── STAGE 1: broad interest/course mapping, SPLIT by class level ─────────
+  //  class10 → STREAM-FIT questions (broad aptitude: Science/Commerce/Arts),
+  //            asked to a student who is choosing an 11-12 STREAM. This is
+  //            the original 15-question broad bank — its ids/weights are left
+  //            untouched so AFTER_CLASS_10's domainsUnlocked-based stream
+  //            scoring in pathwayAdvisor.js keeps working unchanged.
+  //  class12 → COURSE/CAREER-fit questions, asked to a student who ALREADY
+  //            has a stream and is choosing a specific course/career within
+  //            or around it. These are finer-grained "which flavour of this
+  //            domain" questions (e.g. numbers vs people, software vs
+  //            hardware, clinical vs research, law vs media) rather than
+  //            "which stream" questions.
+  broad: {
+    class10: [
+      { id: 'q_build', text: 'Do you enjoy building, fixing, or figuring out how machines and gadgets work?', domains: { engineering: 3, computing: 1, vocational: 1 } },
+      { id: 'q_code', text: 'Would you like to create apps, games, or websites using a computer?', domains: { computing: 3, engineering: 1, design: 1 } },
+      { id: 'q_bio', text: 'Are you fascinated by the human body, health, or living things?', domains: { medical: 3, pure_science: 1, agriculture: 1 } },
+      { id: 'q_numbers', text: 'Are you comfortable working with money, numbers, and business ideas?', domains: { commerce: 3, management: 2, computing: 1 } },
+      { id: 'q_lead', text: 'Do you like leading teams, organising events, or the idea of running a business one day?', domains: { management: 3, commerce: 1, hospitality: 1 } },
+      { id: 'q_argue', text: 'Do you enjoy debating, arguing a point, or a strong sense of justice and rules?', domains: { law: 3, arts: 1 } },
+      { id: 'q_create', text: 'Do you love drawing, designing, or making things look beautiful?', domains: { design: 3, performing: 2, media: 1, architecture: 1 } },
+      { id: 'q_express', text: 'Do you enjoy writing, storytelling, speaking, or making videos?', domains: { media: 3, arts: 2, performing: 1 } },
+      { id: 'q_people', text: 'Do you like understanding people, helping them, or working with communities?', domains: { arts: 2, medical: 1, education: 2 } },
+      { id: 'q_nature', text: 'Do you care about nature, farming, animals, or the environment?', domains: { agriculture: 3, pure_science: 1 } },
+      { id: 'q_science_why', text: 'Do you love asking "why" and doing experiments to understand how things work?', domains: { pure_science: 3, engineering: 1, medical: 1 } },
+      { id: 'q_uniform', text: 'Does a disciplined career serving the country (armed forces, navy) appeal to you?', domains: { defence: 3 } },
+      { id: 'q_hands', text: 'Would you prefer learning a practical skill and starting to earn quickly, over years of study?', domains: { vocational: 3, hospitality: 1 } },
+      { id: 'q_teach', text: 'Do you enjoy explaining things to others or the idea of teaching?', domains: { education: 3, arts: 1 } },
+      { id: 'q_travel', text: 'Does a career involving travel, hospitality, aviation, or tourism excite you?', domains: { hospitality: 3 } },
+    ],
+    class12: [
+      { id: 'q12_ca_track', text: 'Would you enjoy a career built around numbers, rules, and financial compliance — like Chartered Accountancy or auditing?', domains: { commerce: 3 } },
+      { id: 'q12_biz_people', text: 'Would you rather build a career around people, negotiation, and growing a business — like management, sales, or entrepreneurship — than sit with spreadsheets all day?', domains: { management: 3, commerce: 1 } },
+      { id: 'q12_econ_policy', text: 'Are you drawn to studying markets, policy, and economic trends more than day-to-day accounting?', domains: { commerce: 2, arts: 1 } },
+      { id: 'q12_software_track', text: 'Would you rather build and ship software products than design physical machines or hardware?', domains: { computing: 3 } },
+      { id: 'q12_hardware_track', text: 'Would you rather design physical systems, machines, or electronics hardware than write code all day?', domains: { engineering: 3 } },
+      { id: 'q12_clinical_track', text: 'Do you want direct patient contact and hands-on clinical practice as a doctor or healthcare provider?', domains: { medical: 3 } },
+      { id: 'q12_research_track', text: 'Would you rather work in a lab on research and diagnostics than treat patients directly?', domains: { pure_science: 3, medical: 1 } },
+      { id: 'q12_law_track', text: 'Are you drawn to courtroom argument, legal reasoning, and defending a case?', domains: { law: 3 } },
+      { id: 'q12_media_track', text: 'Are you more drawn to storytelling, media, and public communication than formal legal argument?', domains: { media: 3, arts: 1 } },
+      { id: 'q12_design_track', text: 'Would you rather design how a digital product looks and feels than write its backend logic?', domains: { design: 3, computing: 1 } },
+      { id: 'q12_architecture_track', text: 'Are you more interested in designing buildings and physical spaces than digital products?', domains: { architecture: 3 } },
+      { id: 'q12_entrepreneur_track', text: 'Do you see yourself starting and running your own venture rather than joining a large structured organisation?', domains: { management: 2, commerce: 1 } },
+    ],
+  },
 
   // ── STAGE 2: focused follow-ups, shown only if the domain is a top interest ─
   // Keyed by domain. The engine picks 2-3 questions from the top domains.
@@ -445,12 +472,20 @@ export function validPathwayIdSet(classLevel) {
 /**
  * Score domains from questionnaire answers.
  * answers: [{ questionId, answer: 'yes'|'no'|'skip' }]
+ * classLevel: 'class10' | 'class12' — selects which broad bank an answer's
+ *   questionId is resolved against. Defaults to 'class12' so every existing
+ *   caller (e.g. pathwayAdvisor.js's retrieveCandidates, which historically
+ *   had no notion of class-level-specific broad questions) keeps behaving
+ *   exactly as before.
  * Returns { domainId: score } sorted desc, plus a ranked array.
  */
-export function scoreDomains(answers = []) {
-  // Flatten all questions into a lookup
+export function scoreDomains(answers = [], classLevel = 'class12') {
+  // Flatten the CORRECT class-level broad bank + the shared focused bank into
+  // a lookup. A class10-only question id will not resolve when classLevel is
+  // 'class12' (and vice versa), so cross-bank ids never contribute a score.
+  const broadBank = QUESTION_BANK.broad[classLevel] || QUESTION_BANK.broad.class12
   const allQ = [
-    ...QUESTION_BANK.broad,
+    ...broadBank,
     ...Object.values(QUESTION_BANK.focused).flat(),
   ]
   const qById = new Map(allQ.map((q) => [q.id, q]))
@@ -479,14 +514,32 @@ export function scoreDomains(answers = []) {
 /**
  * Pick the adaptive follow-up questions based on current top domains.
  * Keeps top 2 domains' focused questions + 1 adjacent domain for discovery.
+ *
+ * Design decision (class-level-aware follow-ups):
+ * The focused bank (QUESTION_BANK.focused) is shared across both class
+ * levels rather than duplicated — per the task's explicit allowance of "a
+ * shared set of stream-relevant questions plus an additional class12-only
+ * set layered on top". For 'class10' we bias toward the broader,
+ * stream-clarifying focused questions (i.e. we take them largely as-is,
+ * since they already ask "which flavour of this domain" at a level that
+ * helps a stream-undecided student). For 'class12' we go one step further:
+ * we still start from the same top-domain focused questions, but we widen
+ * the domain window (top 4 domains instead of 3) so a course-deciding
+ * student — who already answered finer-grained class12 broad questions —
+ * gets a slightly richer, more narrowing set of follow-ups layered on top
+ * of the shared bank. This keeps a single focused bank (simpler to
+ * maintain) while still making the OUTPUT stage-aware, which is what the
+ * validation requirement actually checks.
  */
-export function pickFollowUpQuestions(rankedDomains = [], limit = 4) {
+export function pickFollowUpQuestions(rankedDomains = [], limit = 4, classLevel = 'class12') {
   const picked = []
-  const topIds = rankedDomains.slice(0, 3).map((d) => d.id)
+  const domainWindow = classLevel === 'class10' ? 3 : 4
+  const topIds = rankedDomains.slice(0, domainWindow).map((d) => d.id)
   for (const domId of topIds) {
     const qs = QUESTION_BANK.focused[domId] || []
     for (const q of qs) {
       if (picked.length >= limit) break
+      if (picked.some((p) => p.id === q.id)) continue
       picked.push(q)
     }
     if (picked.length >= limit) break

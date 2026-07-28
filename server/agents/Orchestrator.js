@@ -1,5 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
-import { normalizeStream, streamsMatch, detectStreamExamMismatch } from '../config/streams.js'
+import {
+  normalizeStream, streamsMatch, detectStreamExamMismatch,
+  detectExamsInText, textNamesExam, pathOnExamTrack, EXAM_VOCABULARY,
+  escapeRegExp,
+} from '../config/streams.js'
+import { findPathwayById } from '../data/indiaPathways.js'
 import { enforceGuidanceEvidence } from '../domain/verification/verifyEvidence.js'
 import { callLLM, isAiAvailable, getAiStatus } from '../ai/llmClient.js'
 
@@ -31,12 +36,329 @@ export function dedupCollegesByName(colleges) {
   return result
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// RECOMMENDATION RANKING
+//
+// The UI labels options purely by array index ("Option 1/2/3"), so whatever
+// order the LLM emitted used to become the ranking. This re-ranks by fit to the
+// student's STATED profile so raw model order is never trusted.
+//
+// Scoring shape follows scoreConfidence() in ai/pathwayAdvisor.js: weighted
+// signals plus an inspectable breakdown. Pure function (no LLM/DB/network), like
+// dedupCollegesByName / applyEvidenceGuardrail / assembleGuidanceResponse, so it
+// is directly unit-testable.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Signal weights. The exam signal is deliberately dominant: the smallest
+ * non-zero exam score (50) still outranks a perfect stream + interest score
+ * (25 + 15 = 40), so a named exam can never be outvoted by softer signals.
+ */
+export const RANK_WEIGHTS = Object.freeze({
+  examCoreTrack: 70,            // path itself IS the exam's track (MBBS for NEET)
+  examNamedInRequirement: 50,   // requires_entrance_exam names the exam
+  streamPrimary: 25,            // path is a first-choice field for the stream
+  streamSecondary: 12,          // adjacent/secondary field for the stream
+  interestKeyword: 5,           // per literal interest keyword matched
+  interestKeywordCap: 15,
+})
+
+/**
+ * Which fields a stream points at. `primary` = the stream's first-choice fields
+ * (PCB → medical/clinical), `secondary` = genuinely adjacent but not the
+ * stream's headline route (PCB → biotech/life sciences).
+ */
+const STREAM_FIT_KEYWORDS = Object.freeze({
+  pcm: {
+    primary: ['b.tech', 'btech', 'b tech', 'engineering', 'computer', 'software', 'data science', 'b.arch', 'barch', 'architect', 'information technology', 'bca', 'mathematic', 'physics'],
+    secondary: ['b.des', 'design', 'analytic', 'defence', 'nda', 'merchant navy', 'science'],
+  },
+  pcb: {
+    primary: ['mbbs', 'bds', 'medicine', 'medical', 'dental', 'nursing', 'pharm', 'physio', 'bpt', 'ayurved', 'bams', 'bhms', 'ayush', 'veterinary', 'allied health', 'radiolog', 'optom', 'lab technolog', 'paramedical'],
+    secondary: ['bio', 'life science', 'agricultur', 'nutrition', 'psycholog', 'forensic', 'environment', 'science'],
+  },
+  commerce: {
+    primary: ['b.com', 'bcom', 'commerce', 'chartered accountan', 'accountancy', 'ca_', '(ca)', 'bba', 'bms', 'finance', 'econom', 'company secretary', 'cma'],
+    secondary: ['management', 'business', 'analytic', 'llb', 'law', 'hotel', 'tourism'],
+  },
+  arts: {
+    primary: ['arts', 'humanities', 'llb', 'law', 'psycholog', 'journalism', 'mass comm', 'sociolog', 'history', 'political', 'english', 'literature', 'social work', 'civil service'],
+    secondary: ['b.des', 'design', 'media', 'film', 'education', 'b.ed', 'hotel', 'tourism', 'management'],
+  },
+  vocational: {
+    primary: ['diploma', 'polytechnic', 'iti', 'b.voc', 'bvoc', 'lateral', 'apprentic', 'certification', 'trade'],
+    secondary: ['b.tech', 'btech', 'engineering', 'skill'],
+  },
+})
+
+/** Coarse stream bucket for STREAM_FIT_KEYWORDS. Returns null when unknown. */
+function streamFitKey(stream) {
+  const s = normalizeStream(stream)
+  if (!s) return null
+  if (s.includes('diploma') || s.includes('polytechnic') || s.includes('vocational') || s === 'iti') return 'vocational'
+  if (s.includes('pcmb')) return 'pcb'   // PCMB keeps the medical route open
+  if (s.includes('pcb')) return 'pcb'
+  if (s.includes('pcm')) return 'pcm'
+  if (s.includes('commerce')) return 'commerce'
+  if (s.includes('art') || s.includes('humanities')) return 'arts'
+  return null
+}
+
+const INTEREST_STOPWORDS = new Set([
+  'preparation', 'preparing', 'prepare', 'interest', 'interests', 'interested',
+  'career', 'careers', 'course', 'courses', 'college', 'class', 'study',
+  'studying', 'studies', 'exam', 'exams', 'entrance', 'want', 'like', 'love',
+  'good', 'best', 'with', 'from', 'that', 'this', 'about', 'after', 'also',
+  'very', 'more', 'into', 'making', 'doing', 'work', 'working', 'future',
+])
+
+/**
+ * Literal keyword tokens from the student's free-text interests. Exam names are
+ * removed because they are already scored (much more strongly) by the exam
+ * signal — leaving them in would double-count.
+ */
+function interestTokens(interests) {
+  const raw = String(interests || '').toLowerCase()
+  if (!raw.trim()) return []
+  const examWords = new Set(
+    Object.values(EXAM_VOCABULARY).flatMap(e => e.aliases.flatMap(a => a.split(/[^a-z0-9]+/)))
+  )
+  const seen = new Set()
+  const tokens = []
+  for (const token of raw.split(/[^a-z0-9]+/)) {
+    if (token.length < 4) continue
+    if (INTEREST_STOPWORDS.has(token) || examWords.has(token)) continue
+    if (seen.has(token)) continue
+    seen.add(token)
+    tokens.push(token)
+  }
+  return tokens
+}
+
+/** Text a recommendation is allowed to expose to the exam/stream matchers. */
+function pathIdentityText(rec) {
+  return `${rec?.path || ''} ${rec?.path_id || ''}`.toLowerCase()
+}
+
+/**
+ * Real academic-fit data for a recommendation, or null when we have none.
+ * Only uses verified inputs — formData.marks and the curated `minMarks12`
+ * guidance figure in data/indiaPathways.js (reachable only when the LLM used a
+ * dataset path_id). Nothing is invented: no cutoffs, no admission odds.
+ */
+function academicFitCaution(rec, formData) {
+  const marks = parseFloat(formData?.marks)
+  if (!Number.isFinite(marks) || marks <= 0) return null
+  const truth = findPathwayById(rec?.path_id)
+  const need = truth?.minMarks12
+  if (!Number.isFinite(need) || marks >= need) return null
+  return `Reported marks (${marks}%) are below the typical competitive band (~${need}%) recorded for "${truth.name}" in the curated pathway data.`
+}
+
+/**
+ * Re-rank recommendations by fit to the student's stated profile.
+ *
+ * Pure: returns a NEW array containing the SAME recommendation objects (never
+ * dropped, added, cloned-with-edits, or mutated) in a new order, plus an
+ * inspectable score breakdown.
+ *
+ * Signals, in descending weight:
+ *  1. EXAM — exams the student explicitly named (interests, preferred admission
+ *     mode, profile-analysis text). A recommendation matches only via its `path`
+ *     / `path_id` (the exam's own course track) or its `requires_entrance_exam`.
+ *     Prose fields like `honest_take` are never consulted, so the PCB fallback's
+ *     "Avoids NEET pressure" cannot promote a biotech option for a NEET student.
+ *  2. STREAM — the path's field vs the student's stream (PCB → medical first,
+ *     biotech/life-sciences second).
+ *  3. INTEREST — literal interest keywords against the path name / opens_doors_to.
+ *
+ * Ties keep input order (stable sort), so repeated calls are identical.
+ *
+ * Bridge recommendations from the stream-exam mismatch fallback (`bridge_*`) are
+ * left completely untouched: their order is part of the advisory they ship with.
+ *
+ * @returns {{ ranked: object[], breakdown: object }}
+ */
+export function rankRecommendations(recommendations, formData = {}, profileAnalysis = null) {
+  const list = Array.isArray(recommendations) ? recommendations.filter(Boolean) : []
+
+  const baseBreakdown = {
+    examsNamed: [],
+    streamKey: streamFitKey(formData?.stream),
+    interestTokens: [],
+    reordered: false,
+    skipped: null,
+    // See PART 3 note below — the carve-out is intentionally conservative.
+    carveOut: { active: false, reason: 'no demotion applied' },
+    scores: [],
+  }
+
+  if (list.length < 2) {
+    return { ranked: [...list], breakdown: { ...baseBreakdown, skipped: list.length ? 'single_recommendation' : 'empty' } }
+  }
+
+  // Bridge paths ship WITH an advisory that explains their order — don't touch.
+  if (list.some(r => typeof r.path_id === 'string' && r.path_id.startsWith('bridge_'))) {
+    return { ranked: [...list], breakdown: { ...baseBreakdown, skipped: 'bridge_paths' } }
+  }
+
+  // ─── Signals derived from the STUDENT's own text only ─────────────────────
+  const profileText = [
+    formData?.interests,
+    formData?.preferredModeOfAdmission,
+    profileAnalysis?.academicStanding,
+    profileAnalysis?.coachingNeeds,
+    ...(Array.isArray(profileAnalysis?.keyStrengths) ? profileAnalysis.keyStrengths : []),
+    ...(Array.isArray(profileAnalysis?.keyConstraints) ? profileAnalysis.keyConstraints : []),
+  ].filter(Boolean).join(' | ')
+
+  const examsNamed = detectExamsInText(profileText)
+  const tokens = interestTokens(formData?.interests)
+  const streamKey = streamFitKey(formData?.stream)
+  const streamFit = streamKey ? STREAM_FIT_KEYWORDS[streamKey] : null
+
+  const scored = list.map((rec, index) => {
+    const identity = pathIdentityText(rec)
+    const requirement = String(rec.requires_entrance_exam || '').toLowerCase()
+
+    // 1. EXAM SIGNAL
+    let exam = 0
+    let examTrack = null
+    for (const examId of examsNamed) {
+      const onTrack = pathOnExamTrack(identity, examId)
+      const named = textNamesExam(requirement, examId)
+      if (!onTrack && !named) continue
+      const points = (onTrack ? RANK_WEIGHTS.examCoreTrack : 0) + (named ? RANK_WEIGHTS.examNamedInRequirement : 0)
+      if (points > exam) {
+        exam = points
+        examTrack = onTrack && named ? `${examId}:core+required` : onTrack ? `${examId}:core` : `${examId}:required`
+      }
+    }
+
+    // 2. STREAM SIGNAL
+    let stream = 0
+    if (streamFit) {
+      if (streamFit.primary.some(k => identity.includes(k))) stream = RANK_WEIGHTS.streamPrimary
+      else if (streamFit.secondary.some(k => identity.includes(k))) stream = RANK_WEIGHTS.streamSecondary
+    }
+
+    // 3. INTEREST SIGNAL
+    const doors = Array.isArray(rec.opens_doors_to) ? rec.opens_doors_to.join(' ') : ''
+    const interestHaystack = `${rec.path || ''} ${doors}`.toLowerCase()
+    let matchedTokens = 0
+    for (const token of tokens) {
+      const stem = token.length > 4 && token.endsWith('s') ? token.slice(0, -1) : token
+      if (interestHaystack.includes(token) || interestHaystack.includes(stem)) matchedTokens++
+    }
+    const interest = Math.min(RANK_WEIGHTS.interestKeywordCap, matchedTokens * RANK_WEIGHTS.interestKeyword)
+
+    return {
+      index,
+      path_id: rec.path_id,
+      path: rec.path,
+      exam,
+      examTrack,
+      stream,
+      interest,
+      total: exam + stream + interest,
+      // Observability only. PART 3 (marks carve-out): an exam-matched option is
+      // NEVER demoted on academic grounds by this code. `minMarks12` is
+      // documented in indiaPathways.js as "guidance only, not a cutoff", so it
+      // cannot honestly disqualify anyone, and inventing a cutoff would break
+      // this project's data-provenance rule. A real demotion would also require
+      // saying so in honest_take / backup_plan, which this function must not
+      // rewrite — so the demotion decision is left to the LLM, which the prompts
+      // now instruct to explain it. We only surface the caution here.
+      academicFitCaution: academicFitCaution(rec, formData),
+    }
+  })
+
+  // Stable sort: higher total first, original index breaks ties.
+  const order = [...scored].sort((a, b) => (b.total - a.total) || (a.index - b.index))
+  const ranked = order.map(s => list[s.index])
+  const reordered = order.some((s, i) => s.index !== i)
+  for (const [rank, s] of order.entries()) scored[s.index].rank = rank
+
+  const cautioned = scored.filter(s => s.exam > 0 && s.academicFitCaution)
+  return {
+    ranked,
+    breakdown: {
+      examsNamed,
+      streamKey,
+      interestTokens: tokens,
+      reordered,
+      skipped: null,
+      carveOut: cautioned.length
+        ? {
+            active: false,
+            reason: 'academic-fit caution recorded from real data, but no demotion applied — ' +
+              'minMarks12 is guidance, not a cutoff',
+            notes: cautioned.map(s => s.academicFitCaution),
+          }
+        : { active: false, reason: 'no demotion applied' },
+      scores: scored,
+    },
+  }
+}
+
 /**
  * Scholarship surfaced when the RAG agent returns no DB-verified scholarships.
  * Kept as a named constant so the evidence guardrail's allow-list and the
  * response assembly can never drift apart (a drift would blank the name out).
  */
 export const FALLBACK_SCHOLARSHIP_NAME = 'Post-Matric Scholarship Scheme'
+
+/**
+ * Surfaced on an option's `institution_match_note` when the program-matching
+ * filter (see `runCollegeRecommendationAgent`) determined that no verified,
+ * degree-specific institution data exists for that option — e.g. B.Sc
+ * Biotechnology / BPT Physiotherapy, whose real institutions are not
+ * distinguishable from the generic NEET-UG medical bucket (fallback lists)
+ * or the stream-tagged-only `colleges` table (DB path). Per this project's
+ * anti-fabrication rule, an empty list + explicit note is used instead of
+ * either fabricating a plausible-sounding institution or reusing an
+ * unrelated admission-route's institutions.
+ */
+export const NO_VERIFIED_INSTITUTION_MATCH_NOTE =
+  'No verified institution match for this specific program — only stream-level (not degree-specific) college data is available today.'
+
+/**
+ * Surfaced as `avg_yearly_cost` when an option has no institutions to derive
+ * a cost from. Replaces the old shared hardcoded literal
+ * ('₹80,000–₹1,50,000/yr'), which silently duplicated across unrelated
+ * options and looked like a verified figure. This marker is intentionally
+ * the same string across every such option — it means "no data", not "this
+ * happens to be the same cost."
+ */
+export const COST_DATA_UNAVAILABLE = 'Cost data not available for this specific program yet.'
+
+/** The app's existing lowest income band — see INCOME_TO_LAKH in server/index.js. */
+export const LOW_INCOME_AID_TRIGGER = 'below_2.5L'
+
+/**
+ * True when a recommendation's `path`/`path_id` identifies it as B.Sc
+ * Biotechnology (or an equivalent free-text LLM path) — i.e. NOT a genuinely
+ * NEET-gated degree, even though it lives in the same "life sciences" family
+ * as MBBS/BDS. Guards against a plain "biotech" substring match accidentally
+ * catching something like "MBBS ... Biotech research electives" by excluding
+ * any path text that also names "mbbs".
+ */
+export function isBiotechLikePath(opt) {
+  const pathId = opt?.path_id || ''
+  const pathLower = (opt?.path || '').toLowerCase()
+  return pathId === 'bsc_biotech' || (pathLower.includes('biotech') && !pathLower.includes('mbbs'))
+}
+
+/**
+ * True when a recommendation's `path`/`path_id` identifies it as Bachelor of
+ * Physiotherapy (BPT) — a real but non-NEET-gated (State CET/Merit in most
+ * states) clinical degree, distinct from the NEET-UG medical bucket.
+ */
+export function isPhysiotherapyLikePath(opt) {
+  const pathId = opt?.path_id || ''
+  const pathLower = (opt?.path || '').toLowerCase()
+  return pathId === 'bpt_physiotherapy' || pathLower.includes('physiotherapy')
+}
 
 /**
  * EVIDENCE GUARDRAIL — every college/scholarship name surfaced in the response
@@ -78,6 +400,95 @@ export function applyEvidenceGuardrail(result, state = {}, formData = {}) {
     colleges: collegeAllowList,
     scholarships: scholarshipAllowList,
   })
+}
+
+/**
+ * Checks whether a recommendation's `honest_take` names an entrance exam
+ * that does NOT actually gate that recommendation's degree, and if so,
+ * neutralizes only that exam's alias occurrences in the returned text.
+ *
+ * Reuses the EXISTING `EXAM_VOCABULARY` / `detectExamsInText` /
+ * `pathOnExamTrack` / `textNamesExam` helpers from `server/config/streams.js`
+ * (built for `rankRecommendations`) rather than introducing a second,
+ * parallel exam-mapping system — per this project's scoping decision. An
+ * exam named in prose is considered CONSISTENT if it is either on the
+ * recommendation's own course track (`pathOnExamTrack`, e.g. "mbbs" is on
+ * NEET's track) or explicitly named in the recommendation's own
+ * `requires_entrance_exam` (`textNamesExam`). This works identically for
+ * dataset path_ids and for freeform LLM-produced path/path_id text, since
+ * both signals only ever read the recommendation's own fields.
+ *
+ * Pure function (no I/O). Returns the ORIGINAL honest_take unchanged
+ * (`corrected: false`) when every named exam is consistent, or when no exam
+ * is named at all.
+ *
+ * @param {{ path?: string, path_id?: string, honest_take?: string, requires_entrance_exam?: string }} rec
+ * @returns {{ honestTake: string, corrected: boolean, mismatchedExams: string[] }}
+ */
+export function sanitizeExamMismatchInHonestTake(rec) {
+  const originalHonestTake = rec?.honest_take || ''
+  if (!originalHonestTake) {
+    return { honestTake: originalHonestTake, corrected: false, mismatchedExams: [] }
+  }
+
+  const identity = pathIdentityText(rec)
+  const requirement = String(rec?.requires_entrance_exam || '').toLowerCase()
+  const namedExams = detectExamsInText(originalHonestTake)
+
+  const mismatchedExams = namedExams.filter(examId =>
+    !pathOnExamTrack(identity, examId) && !textNamesExam(requirement, examId)
+  )
+
+  if (mismatchedExams.length === 0) {
+    return { honestTake: originalHonestTake, corrected: false, mismatchedExams: [] }
+  }
+
+  let honestTake = originalHonestTake
+  for (const examId of mismatchedExams) {
+    const entry = EXAM_VOCABULARY[examId]
+    if (!entry) continue
+    for (const alias of entry.aliases) {
+      const pattern = new RegExp(`(^|[^a-z0-9])${escapeRegExp(alias)}([^a-z0-9]|$)`, 'gi')
+      honestTake = honestTake.replace(pattern, (_match, before, after) => `${before}the relevant entrance exam${after}`)
+    }
+  }
+
+  return { honestTake, corrected: true, mismatchedExams }
+}
+
+/**
+ * Builds the per-response financial-aid data attached to EVERY option card
+ * when the student's family income is at or below the app's existing
+ * lowest income band. Reuses `formData.incomeRange === 'below_2.5L'` — the
+ * exact threshold `runSearchRetrievalAgent` already uses for its +15
+ * central/state college-scoring bonus — rather than introducing a new
+ * income band (there is no ₹8L/EWS band anywhere in this app today).
+ *
+ * Scheme data is sourced EXCLUSIVELY from `state.scholarshipRecommendations`
+ * (the same verified rows `scholarships_list` is built from), or the
+ * existing `FALLBACK_SCHOLARSHIP_NAME` constant when none were surfaced —
+ * never an invented name, eligibility figure, or income cap.
+ *
+ * Pure function (no I/O). Returns `null` when the trigger condition is not
+ * met, so callers can conditionally spread the result into each option.
+ *
+ * @param {{ incomeRange?: string }} formData
+ * @param {{ scholarshipRecommendations?: Array }} state
+ * @returns {{ income_band: string, schemes: Array<{name: string, eligibility: string|null, application_url: string|null}> } | null}
+ */
+export function buildFinancialAidSection(formData, state) {
+  if (formData?.incomeRange !== LOW_INCOME_AID_TRIGGER) return null
+
+  const surfaced = state?.scholarshipRecommendations || []
+  const schemes = surfaced.length
+    ? surfaced.map(s => ({
+        name: s.name,
+        eligibility: s.eligibility || null,
+        application_url: s.applicationUrl || null,
+      }))
+    : [{ name: FALLBACK_SCHOLARSHIP_NAME, eligibility: null, application_url: null }]
+
+  return { income_band: formData.incomeRange, schemes }
 }
 
 /**
@@ -133,6 +544,8 @@ ${modeInstruction}${mismatchParagraph}
 INTEREST RULE: map creative/design interests (poster, sketching, UI) to modern careers (B.Des UI/UX, Animation, Digital Marketing), NOT traditional fine arts unless they mention performing arts/music.
 
 Recommend 2-3 best-fit paths. For each, give a 4-year roadmap (years 1-4, each with focus/skills/milestones). Be specific to THIS student's interests and marks.
+
+ORDERING RULE: order "recommendations" best-fit FIRST, by (a) any entrance exam the student names in their profile/interests — if they name an exam, the option on that exam's track MUST be first (e.g. a student mentioning "NEET preparation" gets the NEET track — MBBS / BDS / AYUSH — first, NOT a non-NEET track like B.Tech or B.Sc Biotechnology); then (b) stream-match strength (PCB favours medical/biology-first fields over adjacent secondary ones); then (c) literal interest-keyword match. If the exam-matched option is NOT first because the student's marks or academic fit genuinely disqualify it, say so explicitly in that option's "honest_take" and/or "backup_plan" — never demote it silently.
 
 Respond ONLY with JSON:
 {
@@ -447,6 +860,9 @@ export async function runCareerRecommendationAgent(state) {
     - If they have a Science stream, B.Des, B.Arch, or tech-design fields (like UI/UX) are excellent options.
 
     Recommend 2-3 ${isClass10 ? 'stream options for Class 11/12' : 'specific career tracks'}.
+
+    ORDERING RULE: order "recommendations" best-fit FIRST, by (a) any entrance exam the student names in their profile/interests — if they name an exam, the option on that exam's track MUST be first (e.g. a student mentioning "NEET preparation" gets the NEET track — MBBS / BDS / AYUSH — first, NOT a non-NEET track like B.Tech or B.Sc Biotechnology); then (b) stream-match strength (PCB favours medical/biology-first fields over adjacent secondary ones); then (c) literal interest-keyword match. If the exam-matched option is NOT first because the student's marks or academic fit genuinely disqualify it, say so explicitly in that option's "honest_take" and/or "backup_plan" — never demote it silently.
+
     Respond ONLY with a JSON object in this format:
     {
       "recommendations": [
@@ -593,7 +1009,7 @@ export async function runCareerRecommendationAgent(state) {
           {
             path_id: 'bsc_biotech',
             path: "B.Sc Biotechnology / Genetics",
-            honest_take: "Great research and lab-oriented career. Avoids NEET pressure but requires higher education to secure top roles.",
+            honest_take: "Great research and lab-oriented career, with admission via CUET/merit rather than a national entrance exam. An M.Sc or Ph.D is practically mandatory for top roles.",
             requires_entrance_exam: "CUET / None",
             opens_doors_to: ["Biotech Researcher", "Lab Scientist", "Pharmaceutical Analyst"],
             watch_out_for: "An M.Sc or Ph.D is practically mandatory for high-paying research roles.",
@@ -638,33 +1054,28 @@ export async function runCareerRecommendationAgent(state) {
 }
 
 /**
- * Returns true if any college in `colleges` has a `city`/`state` (lower-cased,
- * trimmed) equal to the student's preferred `prefCity`/`prefState`. Placeholder
- * values ("", "any state", "any") are treated as "no preference" by the caller
- * before this function is invoked, so an empty prefState/prefCity here simply
- * never matches (no in-region match possible when nothing is preferred).
- */
-function hasInRegionMatch(colleges, prefState, prefCity) {
-  return (colleges || []).some(c => {
-    const cState = (c.state || '').trim().toLowerCase()
-    const cCity = (c.city || '').trim().toLowerCase()
-    return (prefState && cState === prefState) || (prefCity && cCity === prefCity)
-  })
-}
-
-/**
  * 4. College Recommendation Agent
  */
 export async function runCollegeRecommendationAgent(state) {
   const form = state.formData
   const careerPaths = state.careerPaths
   const retrievedColleges = state.retrievedColleges
-  // Student's preferred region, normalized. Placeholder values mean "no preference".
-  const rawPrefState = (form.preferredState || '').trim().toLowerCase()
-  const rawPrefCity = (form.preferredCity || '').trim().toLowerCase()
-  const NO_PREFERENCE = new Set(['', 'any state', 'any'])
-  const prefState = NO_PREFERENCE.has(rawPrefState) ? '' : rawPrefState
-  const prefCity = NO_PREFERENCE.has(rawPrefCity) ? '' : rawPrefCity
+
+  // CLASS 10 GATE: Class 10 students only get stream-level recommendations
+  // (e.g. "Science (PCM)") — a stream choice is not a college, so no college
+  // names should ever be attached. This is an explicit, early gate: no DB
+  // lookup, no fallback-list selection, no budget/region logic runs at all
+  // for class10 — it never falls through to the class12 logic below.
+  if (form.classLevel === 'class10') {
+    return {
+      mappings: (careerPaths.recommendations || []).map(opt => ({
+        path_id: opt.path_id,
+        path: opt.path,
+        colleges: [],
+      })),
+    }
+  }
+
   // DETERMINISTIC (no LLM): the retrieved colleges are already DB-verified and
   // ranked by the RAG agent, so mapping them to paths is a pure lookup. This
   // removes one LLM call per request AND is more accurate than asking the model
@@ -674,6 +1085,29 @@ export async function runCollegeRecommendationAgent(state) {
       mappings: (careerPaths.recommendations || []).map(opt => {
         const pathId = opt.path_id || ''
         const pathLower = (opt.path || '').toLowerCase()
+
+        // ── Program-matching filter (applied BEFORE consulting either
+        //    retrievedColleges or any fallback list) ──────────────────────
+        // B.Sc Biotechnology and BPT Physiotherapy are NOT NEET-gated (their
+        // real routes are CUET/Merit and State CET/Merit respectively), so
+        // they must never inherit the NEET-UG medical bucket. They also
+        // can't honestly use retrievedColleges: that table is tagged only by
+        // 12th-stream eligibility ("Science (PCB)"), never by specific
+        // degree program, so a stream-tagged row cannot back a "this
+        // college offers Biotech/BPT" claim either. No verified,
+        // program-specific institution data exists anywhere in this
+        // codebase for these two degrees, so — per the anti-fabrication
+        // rule — an empty list with an explicit note is returned instead of
+        // fabricating or reusing an unrelated bucket.
+        if (isBiotechLikePath(opt) || isPhysiotherapyLikePath(opt)) {
+          return {
+            path_id: opt.path_id,
+            path: opt.path,
+            colleges: [],
+            programMatchNote: NO_VERIFIED_INSTITUTION_MATCH_NOTE,
+          }
+        }
+
         let fallbackColleges = []
 
         if (pathId === 'ca_finance' || pathId === 'bba_finance' ||
@@ -716,8 +1150,7 @@ export async function runCollegeRecommendationAgent(state) {
               whyFit: "Historical institution renowned for arts and liberal education."
             }
           ]
-        } else if (pathId === 'bsc_biotech' || pathId === 'bpt_physiotherapy' ||
-                   pathLower.includes('doctor') || pathLower.includes('neet') || pathLower.includes('mbbs') || pathLower.includes('biotech') || pathLower.includes('physiotherapy')) {
+        } else if (pathLower.includes('doctor') || pathLower.includes('neet') || pathLower.includes('mbbs')) {
           fallbackColleges = [
             {
               name: "AIIMS New Delhi",
@@ -756,29 +1189,6 @@ export async function runCollegeRecommendationAgent(state) {
               whyFit: "Premium infrastructure and direct corporate recruiter partnerships."
             }
           ]
-        }
-
-        // Adjust fallback colleges if the budget is very low (e.g., below_20k or below_1L),
-        // but only substitute to NIT Patna when no in-region affordable option already
-        // exists — and disclose the substitution reason when it does happen.
-        if (form.budget === 'below_20k' || form.budget === 'below_1L') {
-          const inRegion = hasInRegionMatch(fallbackColleges, prefState, prefCity)
-          if (!inRegion) {
-            fallbackColleges = fallbackColleges.map(c => {
-              if (c.name === 'RV College of Engineering' || c.name === 'PES University') {
-                return {
-                  ...c,
-                  name: "NIT Patna",
-                  city: "Patna",
-                  state: "Bihar",
-                  feeRange: "₹1,18,000–₹1,80,000/yr",
-                  admissionMode: "JEE Main (State Quota)",
-                  whyFit: "No affordable engineering college found in your region — nearest subsidized option is in Patna."
-                }
-              }
-              return c
-            })
-          }
         }
 
         return {
@@ -1146,6 +1556,9 @@ export async function runSummaryAgent(state) {
  * @param totalDurationMs wall-clock duration reported in explainability
  */
 export function assembleGuidanceResponse(state, formData = {}, totalDurationMs = 0) {
+  // Computed once per response (not per option) — see buildFinancialAidSection.
+  const financialAid = buildFinancialAidSection(formData, state)
+
   const assembled = {
     summary: state.finalSummary.summary,
     options: ((state.careerPaths && state.careerPaths.recommendations) || []).map(opt => {
@@ -1183,19 +1596,27 @@ export function assembleGuidanceResponse(state, formData = {}, totalDurationMs =
         else if (b === '60k-1.5L') costStr = '₹60,000–₹1,50,000/yr'
         else if (b === 'above_1.5L') costStr = '₹1,50,000–₹2,50,000/yr'
       } else {
-        costStr = dedupedColleges.length ? dedupedColleges[0].feeRange : '₹80,000–₹1,50,000/yr'
+        costStr = dedupedColleges.length ? dedupedColleges[0].feeRange : COST_DATA_UNAVAILABLE
       }
+
+      // Neutralize any exam named in honest_take that does not actually gate
+      // this option's degree (e.g. "Avoids NEET pressure" for a CUET/merit
+      // degree) — applies identically to fallback-produced and
+      // LLM-produced recommendations, since both flow through this join.
+      const { honestTake: sanitizedHonestTake } = sanitizeExamMismatchInHonestTake(opt)
 
       return {
         path: opt.path,
-        honest_take: opt.honest_take,
+        honest_take: sanitizedHonestTake,
         requires_entrance_exam: opt.requires_entrance_exam || 'None',
         realistic_colleges: dedupedColleges.map(c => c.name),
         avg_yearly_cost: costStr,
         opens_doors_to: opt.opens_doors_to || [],
         watch_out_for: opt.watch_out_for || 'Competition is high.',
         backup_plan: opt.backup_plan || 'Look into alternative courses.',
-        roadmap_steps: mappedRoad ? mappedRoad.years : []
+        roadmap_steps: mappedRoad ? mappedRoad.years : [],
+        institution_match_note: (mappedCol && mappedCol.programMatchNote) || null,
+        ...(financialAid ? { financial_aid: financialAid } : {}),
       }
     }),
     scholarship_to_check: state.scholarshipRecommendations.length ? state.scholarshipRecommendations[0].name : FALLBACK_SCHOLARSHIP_NAME,
@@ -1345,6 +1766,30 @@ export async function runMultiAgentOrchestrator(formData) {
   }
 
   state.profileAnalysis = state.profileAnalysis || { academicStanding: 'Medium', financialCategory: 'Subsidized', riskAppetite: 'Balanced', keyConstraints: [], keyStrengths: [], coachingNeeds: '' }
+
+  // ─── RE-RANK (single wiring point for BOTH producers) ─────────────────────
+  // Placed after the combined-success branch AND the per-agent fallback branch
+  // have each had their chance to assign state.careerPaths, and before Stage 2.
+  // Safe here because nothing downstream joins by index: the college and roadmap
+  // agents map over the recommendations, and assembleGuidanceResponse joins on
+  // path_id with a path-text fallback.
+  const preRankRecommendations = (state.careerPaths && state.careerPaths.recommendations) || []
+  if (preRankRecommendations.length > 1) {
+    const { ranked, breakdown } = rankRecommendations(preRankRecommendations, formData, state.profileAnalysis)
+    if (breakdown.reordered) {
+      const signal = breakdown.examsNamed.length
+        ? `exam named in profile: ${breakdown.examsNamed.join(', ')}`
+        : `stream/interest fit (stream: ${breakdown.streamKey || 'unknown'})`
+      console.log(
+        `[Rank] Reordered recommendations by profile fit — "${ranked[0].path}" promoted to Option 1 ` +
+        `(${signal}); previous Option 1 was "${preRankRecommendations[0].path}".`
+      )
+      state.careerPaths = { ...state.careerPaths, recommendations: ranked }
+    } else if (breakdown.skipped) {
+      console.log(`[Rank] Re-rank skipped (${breakdown.skipped}) — original order kept.`)
+    }
+    state.rankBreakdown = breakdown
+  }
 
   // ─── STAGE 2: Deterministic enrichment (NO LLM) — colleges, scholarships,
   //     study-abroad, mentors, YouTube, and summary fallback if needed ───

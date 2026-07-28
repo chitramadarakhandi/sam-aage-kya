@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
@@ -17,7 +17,6 @@ import OfficialReadiness from './pages/OfficialReadiness'
 import Scenarios from './pages/Scenarios'
 import QABoard from './pages/QABoard'
 import Chatbot from './pages/Chatbot'
-import GlobalSearch from './components/GlobalSearch'
 
 // New pages
 import CompetitiveExams from './pages/CompetitiveExams'
@@ -113,30 +112,15 @@ function AnimatedRoutes() {
 }
 
 function App() {
-  const [searchOpen, setSearchOpen] = useState(false)
-
-  useEffect(() => {
-    const handler = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        setSearchOpen(prev => !prev)
-      }
-      if (e.key === 'Escape') setSearchOpen(false)
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [])
-
   return (
     <AuthProvider>
       <BrowserRouter>
         <div className="min-h-screen bg-navy flex flex-col">
           <ScrollToTop />
-          <Navbar onSearchOpen={() => setSearchOpen(true)} />
+          <Navbar />
           <AnimatedRoutes />
           <Footer />
           <ChatFloatingButton />
-          <GlobalSearch isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
         </div>
       </BrowserRouter>
     </AuthProvider>

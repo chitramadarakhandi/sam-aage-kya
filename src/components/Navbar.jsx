@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import AuthModal from './AuthModal'
 import SearchBar from './SearchBar'
 
-export default function Navbar({ onSearchOpen: _onSearchOpen }) {
+export default function Navbar() {
   const { user, profile, signOut } = useAuth()
 
   const onboardingLink = '/onboarding'

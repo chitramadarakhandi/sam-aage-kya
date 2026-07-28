@@ -42,7 +42,7 @@ for (const key of MANAGED_ENV) {
   delete process.env[key]
 }
 
-const { runMultiAgentOrchestrator, assembleGuidanceResponse } = await import('./Orchestrator.js')
+const { runMultiAgentOrchestrator, assembleGuidanceResponse, COST_DATA_UNAVAILABLE } = await import('./Orchestrator.js')
 
 const REAL_FETCH = global.fetch
 
@@ -560,8 +560,8 @@ describe('assembleGuidanceResponse — path_id join degrades gracefully', () => 
 
     assert.deepStrictEqual(option.realistic_colleges, [])
     assert.deepStrictEqual(option.roadmap_steps, [])
-    // Cost falls back to the generic class12 band rather than crashing.
-    assert.equal(option.avg_yearly_cost, '₹80,000–₹1,50,000/yr')
+    // Cost falls back to the explicit "unavailable" marker rather than crashing.
+    assert.equal(option.avg_yearly_cost, COST_DATA_UNAVAILABLE)
     // Everything else still assembles.
     assert.equal(option.path, 'B.Tech Computer Science & AI')
     assert.equal(option.requires_entrance_exam, 'JEE Main')

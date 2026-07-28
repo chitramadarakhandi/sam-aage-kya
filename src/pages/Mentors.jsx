@@ -187,14 +187,26 @@ function MentorCard({ mentor, index, isBestMatch, onChat }) {
 
         {/* CTAs */}
         <div className="grid grid-cols-2 gap-2">
-          <a
-            href={mentor.cal_link || mentor.calLink || '#'}
-            target="_blank"
-            rel="noreferrer"
-            className="btn-outline text-xs py-2.5 text-center flex items-center justify-center gap-1.5"
-          >
-            📅 Book Call
-          </a>
+          {mentor.cal_link || mentor.calLink ? (
+            <a
+              href={mentor.cal_link || mentor.calLink}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-outline text-xs py-2.5 text-center flex items-center justify-center gap-1.5"
+            >
+              📅 Book Call
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              title="Booking unavailable — this mentor hasn't set up a booking link yet"
+              aria-label="Booking unavailable — this mentor hasn't set up a booking link yet"
+              className="btn-outline text-xs py-2.5 text-center flex items-center justify-center gap-1.5 opacity-50 cursor-not-allowed hover:bg-transparent hover:text-saffron hover:scale-100 active:scale-100"
+            >
+              📅 Book Call
+            </button>
+          )}
           <button
             onClick={() => onChat(mentor)}
             className="btn-primary text-xs py-2.5 flex items-center justify-center gap-1.5"

@@ -328,13 +328,17 @@ export default function Explore() {
   const [showCompare, setShowCompare] = useState(false)
   const [judging, setJudging] = useState(false)
 
-  // Load broad questions once
+  // Load broad questions whenever classLevel changes (setup screen toggle).
+  // Clear broadQuestions FIRST so the "Start" button (disabled when the list
+  // is empty) correctly greys out during the refetch window, instead of
+  // briefly staying clickable with the previous class level's stale questions.
   useEffect(() => {
-    getPathwayStartQuestions()
+    setBroadQuestions([])
+    getPathwayStartQuestions(classLevel)
       .then((r) => r.json())
       .then((d) => setBroadQuestions(d.questions || []))
       .catch(() => setError('Could not load questions. Is the server running?'))
-  }, [])
+  }, [classLevel])
 
   const answerCurrent = (answer) => {
     const q = questions[idx]
@@ -356,7 +360,7 @@ export default function Explore() {
   const loadFollowUps = async (allAnswers) => {
     setPhase('loading')
     try {
-      const res = await postPathwayNextQuestions(allAnswers)
+      const res = await postPathwayNextQuestions(allAnswers, classLevel)
       const data = await res.json()
       if (data.questions && data.questions.length > 0) {
         setFocusedQuestions(data.questions)

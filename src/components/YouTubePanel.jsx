@@ -209,6 +209,48 @@ const CURATED_VIDEOS = {
     { id: 'VYOjWnS4cMY', title: 'Scholarships for Indian Students Abroad', channel: 'MBAUniverse' },
     { id: 'dpTFQSL9B9M', title: 'Germany Free Education for Indians', channel: 'Study Abroad Life' },
   ],
+  // Per-country study abroad video sets. Where a country has no genuinely
+  // country-specific curated video elsewhere in this file, we fall back to
+  // the honest generic `career_guidance` set below rather than inventing or
+  // mislabeling a video as country-specific.
+  study_abroad_usa: [
+    { id: 'Z_oBJn_XYJQ', title: 'How to Study in USA After 12th', channel: 'Yocket' },
+    { id: 'VYOjWnS4cMY', title: 'Scholarships for Indian Students Abroad', channel: 'MBAUniverse' },
+  ],
+  study_abroad_uk: [
+    { id: 'ua-CiDNNj30', title: 'How to Choose the Right Career - 2024', channel: 'TED-Ed' },
+    { id: 'aircAruvnKk', title: '10 High-Paying Careers in India 2024', channel: 'Josh Talks' },
+    { id: 'FXjif1BzVhX', title: 'Emerging Careers & Skills of the Future', channel: 'Josh Talks' },
+  ],
+  study_abroad_canada: [
+    { id: 'ua-CiDNNj30', title: 'How to Choose the Right Career - 2024', channel: 'TED-Ed' },
+    { id: 'aircAruvnKk', title: '10 High-Paying Careers in India 2024', channel: 'Josh Talks' },
+    { id: 'FXjif1BzVhX', title: 'Emerging Careers & Skills of the Future', channel: 'Josh Talks' },
+  ],
+  study_abroad_australia: [
+    { id: 'ua-CiDNNj30', title: 'How to Choose the Right Career - 2024', channel: 'TED-Ed' },
+    { id: 'aircAruvnKk', title: '10 High-Paying Careers in India 2024', channel: 'Josh Talks' },
+    { id: 'FXjif1BzVhX', title: 'Emerging Careers & Skills of the Future', channel: 'Josh Talks' },
+  ],
+  study_abroad_germany: [
+    { id: 'dpTFQSL9B9M', title: 'Germany Free Education for Indians', channel: 'Study Abroad Life' },
+    { id: 'VYOjWnS4cMY', title: 'Scholarships for Indian Students Abroad', channel: 'MBAUniverse' },
+  ],
+  study_abroad_ireland: [
+    { id: 'ua-CiDNNj30', title: 'How to Choose the Right Career - 2024', channel: 'TED-Ed' },
+    { id: 'aircAruvnKk', title: '10 High-Paying Careers in India 2024', channel: 'Josh Talks' },
+    { id: 'FXjif1BzVhX', title: 'Emerging Careers & Skills of the Future', channel: 'Josh Talks' },
+  ],
+  study_abroad_singapore: [
+    { id: 'ua-CiDNNj30', title: 'How to Choose the Right Career - 2024', channel: 'TED-Ed' },
+    { id: 'aircAruvnKk', title: '10 High-Paying Careers in India 2024', channel: 'Josh Talks' },
+    { id: 'FXjif1BzVhX', title: 'Emerging Careers & Skills of the Future', channel: 'Josh Talks' },
+  ],
+  study_abroad_nz: [
+    { id: 'ua-CiDNNj30', title: 'How to Choose the Right Career - 2024', channel: 'TED-Ed' },
+    { id: 'aircAruvnKk', title: '10 High-Paying Careers in India 2024', channel: 'Josh Talks' },
+    { id: 'FXjif1BzVhX', title: 'Emerging Careers & Skills of the Future', channel: 'Josh Talks' },
+  ],
   college_tour: [
     { id: 'ysEN5RaKOlA', title: 'RVCE Campus Tour - Bangalore', channel: 'College Tours India' },
     { id: 'reh7_JwfgWc', title: 'MSRIT Campus Life - Engineering', channel: 'Campus Diaries' },
@@ -266,6 +308,13 @@ export function getVideosForTopic(topic, stageId) {
   }
 
   return CURATED_VIDEOS['career_guidance']
+}
+
+// Convenience helper for country-specific study abroad videos. Falls back to
+// the legacy generic `study_abroad` set only if a country-specific entry is
+// somehow missing (should never trigger once all country entries exist).
+export function getVideosForCountry(countryId) {
+  return CURATED_VIDEOS[`study_abroad_${countryId}`] || CURATED_VIDEOS.study_abroad
 }
 
 function VideoCard({ video, index }) {

@@ -143,14 +143,14 @@ export async function postTranscribe(audio, mimeType, authToken) {
 
 // ─── Pathway Advisor (adaptive discovery flow) ────────────────────────────────
 
-export async function getPathwayStartQuestions() {
-  return apiFetch('/api/pathways/questions/start')
+export async function getPathwayStartQuestions(classLevel) {
+  return apiFetch(`/api/pathways/questions/start?classLevel=${encodeURIComponent(classLevel || '')}`)
 }
 
-export async function postPathwayNextQuestions(answers) {
+export async function postPathwayNextQuestions(answers, classLevel) {
   return apiFetch('/api/pathways/questions/next', {
     method: 'POST',
-    body: JSON.stringify({ answers }),
+    body: JSON.stringify({ answers, classLevel }),
   })
 }
 

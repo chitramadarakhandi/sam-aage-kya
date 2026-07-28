@@ -174,7 +174,7 @@ async function callLLM(prompt, { json = true, maxTokens = 1200, modelOverride = 
 // ── STAGE 1: Retrieval — build the candidate list (deterministic) ────────────
 export function retrieveCandidates(formData, answers) {
   const classLevel = formData.classLevel || 'class12'
-  const { scores, ranked } = scoreDomains(answers || [])
+  const { scores, ranked } = scoreDomains(answers || [], classLevel)
 
   if (classLevel === 'class10') {
     // For class 10, score each STREAM by how many of the student's top domains it unlocks.
