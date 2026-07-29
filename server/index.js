@@ -132,7 +132,7 @@ function createRateLimiter(limit, windowMs, message) {
 const isDev = process.env.NODE_ENV !== 'production'
 const guidanceLimiter = createRateLimiter(isDev ? 50 : 5, 86400000, "You can only generate 5 career guidance reports per day to prevent system abuse. Please try again tomorrow.")
 const roadmapLimiter  = createRateLimiter(isDev ? 50 : 5, 86400000, "You can only generate 5 career roadmaps per day to prevent system abuse. Please try again tomorrow.")
-const mentorApplyLimiter = createRateLimiter(isDev ? 50 : 3, 3600000, "You can only submit a few applications per hour. Please try again later.")
+const mentorApplyLimiter = createRateLimiter(1, 3600000, "You can only submit a few applications per hour. Please try again later.")
 const transcribeLimiter  = createRateLimiter(15, 3600000, "You have exceeded the transcription rate limit. Please try again in an hour.")
 
 
