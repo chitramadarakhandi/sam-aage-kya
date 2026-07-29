@@ -25,6 +25,15 @@ const mockFormData = {
 
 async function test() {
   console.log('Testing Multi-Agent Orchestrator...')
+  // Skip gracefully when no AI provider key is configured (e.g. CI environment).
+  // Calling process.exit(1) here would kill the entire `node --test` runner and
+  // cause all other test files (including the integration suite) to abort.
+  const hasAnyKey = process.env.GROQ_API_KEY || process.env.GEMINI_API_KEY ||
+    process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY
+  if (!hasAnyKey) {
+    console.warn('[test-agents] No AI provider key configured — skipping orchestrator test.')
+    return
+  }
   try {
     const result = await runMultiAgentOrchestrator(mockFormData)
     console.log('SUCCESS!')
