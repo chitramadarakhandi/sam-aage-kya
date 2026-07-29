@@ -1,26 +1,113 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 
-function formatTime(ts) {
-  const d = new Date(ts)
-  return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+function formatDateTime(ts) {
+  if (!ts) return 'Not specified'
+  try {
+    return new Date(ts).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return ts
+  }
 }
+
+// ─── Booking Request Card ─────────────────────────────────────────────────────
+
+function BookingCard({ booking, onAccept, onReject, onComplete, actionLoading }) {
+  const isLoading = actionLoading === booking.id
+  return (
+    <div className="glass-card border-white/5 p-5 flex flex-col gap-3">
+      <div className="flex justify-between items-start gap-3">
+        <div>
+          <h4 className="font-display text-sm font-bold text-white">{booking.contact_name || 'Student'}</h4>
+          <p className="text-gray-400 text-xs">{booking.contact_email}</p>
+          {booking.contact_phone && <p className="text-gray-500 text-xs">{booking.contact_phone}</p>}
+        </div>
+        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border flex-shrink-0 ${
+          booking.status === 'completed' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+          : booking.status === 'accepted' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+          : booking.status === 'rejected' ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+          : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+        }`}>{booking.status || 'pending'}</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-xs bg-white/5 rounded-xl p-3 border border-white/5">
+        <div>
+          <span className="text-gray-500 block text-[10px]">Class</span>
+          <span className="text-white font-medium">{booking.class_level || '—'}</span>
+        </div>
+        <div>
+          <span className="text-gray-500 block text-[10px]">Language</span>
+          <span className="text-white font-medium">{booking.preferred_language || '—'}</span>
+        </div>
+        <div>
+          <span className="text-gray-500 block text-[10px]">Area of Interest</span>
+          <span className="text-white font-medium">{booking.area_of_interest || '—'}</span>
+        </div>
+        <div>
+          <span className="text-gray-500 block text-[10px]">Preferred Date/Time</span>
+          <span className="text-white font-medium">{formatDateTime(booking.session_date)}</span>
+        </div>
+      </div>
+
+      {booking.guidance_query && (
+        <div className="text-xs text-gray-300 bg-white/[0.02] p-3 rounded-xl border border-white/5">
+          <span className="text-gray-500 block font-semibold mb-1">Guidance requested:</span>
+          "{booking.guidance_query}"
+        </div>
+      )}
+
+      {booking.status === 'pending' && (
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={() => onAccept(booking.id)}
+            disabled={isLoading}
+            className="flex-1 btn-primary py-2 text-xs bg-emerald-600 hover:bg-emerald-500 border-emerald-500/30 text-white disabled:opacity-50"
+          >
+            {isLoading ? 'Processing...' : '✅ Accept'}
+          </button>
+          <button
+            onClick={() => onReject(booking.id)}
+            disabled={isLoading}
+            className="flex-1 py-2 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/20 text-rose-300 transition-all disabled:opacity-50"
+          >
+            {isLoading ? 'Processing...' : '❌ Reject'}
+          </button>
+        </div>
+      )}
+
+      {booking.status === 'accepted' && (
+        <div className="pt-1">
+          <button
+            onClick={() => onComplete(booking.id)}
+            disabled={isLoading}
+            className="w-full btn-primary py-2 text-xs disabled:opacity-50"
+          >
+            {isLoading ? 'Processing...' : '🏁 Mark as Completed'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function MentorDashboard() {
   const { user, profile, loading: authLoading } = useAuth()
   const navigate = useNavigate()
 
   const [mentorProfile, setMentorProfile] = useState(null)
-  const [sessions, setSessions] = useState([])
-  const [activeSession, setActiveSession] = useState(null)
-  const [messages, setMessages] = useState([])
-  const [text, setText] = useState('')
-  const [sending, setSending] = useState(false)
+  const [bookings, setBookings] = useState([])
   const [loading, setLoading] = useState(true)
-  const bottomRef = useRef(null)
-  const channelRef = useRef(null)
+  const [actionLoading, setActionLoading] = useState(null)
+  const [activeTab, setActiveTab] = useState('upcoming') // 'upcoming' | 'accepted' | 'completed' | 'settings'
+
+  // Profile settings form
+  const [settingsForm, setSettingsForm] = useState({ story: '', linkedin: '', available: true })
+  const [savingSettings, setSavingSettings] = useState(false)
+  const [settingsSaved, setSettingsSaved] = useState(false)
 
   // ── Guard: redirect non-mentors ─────────────────────────────
   useEffect(() => {
@@ -28,89 +115,68 @@ export default function MentorDashboard() {
     if (!authLoading && profile && profile.role !== 'mentor') navigate('/')
   }, [user, profile, authLoading, navigate])
 
-  // ── Load mentor profile and sessions ────────────────────────
-  useEffect(() => {
+  // ── Load mentor profile and booking requests ────────────────
+  const loadData = useCallback(async () => {
     if (!user) return
-    const load = async () => {
-      setLoading(true)
-      // Find the mentor row linked to this user
-      const { data: mp } = await supabase
-        .from('mentors')
-        .select('*')
-        .eq('user_id', user.id)
-        .maybeSingle()
-      setMentorProfile(mp)
+    setLoading(true)
+    const { data: mp } = await supabase
+      .from('mentors')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle()
+    setMentorProfile(mp)
+    if (mp) {
+      setSettingsForm({ story: mp.story || '', linkedin: mp.linkedin || '', available: mp.available !== false })
 
-      if (mp) {
-        const { data: sess } = await supabase
-          .from('chat_sessions')
-          .select('*, students!chat_sessions_student_id_fkey(full_name, stream, marks)')
-          .eq('mentor_id', mp.id)
-          .order('updated_at', { ascending: false })
-        setSessions(sess || [])
-      }
-      setLoading(false)
+      const { data: sess } = await supabase
+        .from('mentor_sessions')
+        .select('*')
+        .eq('mentor_id', mp.id)
+        .order('created_at', { ascending: false })
+      setBookings(sess || [])
     }
-    load()
+    setLoading(false)
   }, [user])
 
-  // ── Load messages for active session ────────────────────────
-  const loadMessages = useCallback(async (sessionId) => {
-    if (!sessionId) return
-    const { data } = await supabase
-      .from('chat_messages')
-      .select('*')
-      .eq('session_id', sessionId)
-      .order('created_at', { ascending: true })
-    setMessages(data || [])
-  }, [])
+  useEffect(() => { loadData() }, [loadData])
 
-  // ── Subscribe to active session messages ─────────────────────
-  useEffect(() => {
-    if (!activeSession) return
-    loadMessages(activeSession.id)
-
-    const channel = supabase
-      .channel(`mentor-chat:${activeSession.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'chat_messages',
-          filter: `session_id=eq.${activeSession.id}`,
-        },
-        (payload) => {
-          setMessages((prev) => {
-            if (prev.find((m) => m.id === payload.new.id)) return prev
-            return [...prev, payload.new]
-          })
-        }
-      )
-      .subscribe()
-
-    channelRef.current = channel
-    return () => supabase.removeChannel(channel)
-  }, [activeSession, loadMessages])
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  const sendMessage = async (e) => {
-    e.preventDefault()
-    const content = text.trim()
-    if (!content || !activeSession || sending) return
-    setSending(true)
-    setText('')
-    const optimistic = { id: `opt-${Date.now()}`, session_id: activeSession.id, sender_id: user.id, content, created_at: new Date().toISOString() }
-    setMessages((prev) => [...prev, optimistic])
-    const { error } = await supabase.from('chat_messages').insert({ session_id: activeSession.id, sender_id: user.id, content })
-    if (error) {
-      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
-      setText(content)
+  // ── Actions on booking requests ──────────────────────────────
+  const updateBookingStatus = async (id, status) => {
+    setActionLoading(id)
+    try {
+      const { error } = await supabase.from('mentor_sessions').update({ status }).eq('id', id)
+      if (error) throw error
+      setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, status } : b)))
+    } catch (err) {
+      alert(err.message || 'Failed to update booking.')
+    } finally {
+      setActionLoading(null)
     }
-    setSending(false)
+  }
+
+  const handleAccept = (id) => updateBookingStatus(id, 'accepted')
+  const handleReject = (id) => updateBookingStatus(id, 'rejected')
+  const handleComplete = (id) => updateBookingStatus(id, 'completed')
+
+  // ── Profile settings ──────────────────────────────────────────
+  const handleSaveSettings = async (e) => {
+    e.preventDefault()
+    if (!mentorProfile) return
+    setSavingSettings(true)
+    setSettingsSaved(false)
+    try {
+      const { error } = await supabase
+        .from('mentors')
+        .update({ story: settingsForm.story, linkedin: settingsForm.linkedin, available: settingsForm.available })
+        .eq('id', mentorProfile.id)
+      if (error) throw error
+      setMentorProfile((prev) => ({ ...prev, ...settingsForm }))
+      setSettingsSaved(true)
+    } catch (err) {
+      alert(err.message || 'Failed to save profile settings.')
+    } finally {
+      setSavingSettings(false)
+    }
   }
 
   if (authLoading || loading) return (
@@ -131,149 +197,161 @@ export default function MentorDashboard() {
     </main>
   )
 
-  const studentName = (sess) => sess.students?.full_name || sess.student_id?.slice(0, 8) + '...'
+  const now = Date.now()
+  const upcoming = bookings.filter((b) => (b.status === 'pending' || b.status === 'accepted') && (!b.session_date || new Date(b.session_date).getTime() >= now))
+  const accepted = bookings.filter((b) => b.status === 'accepted')
+  const completed = bookings.filter((b) => b.status === 'completed')
+
+  const TABS = [
+    { id: 'upcoming', label: `📅 Upcoming (${upcoming.length})` },
+    { id: 'accepted', label: `✅ Accepted (${accepted.length})` },
+    { id: 'completed', label: `🏁 Completed (${completed.length})` },
+    { id: 'settings', label: '⚙️ Profile Settings' },
+  ]
 
   return (
-    <main className="pt-16 min-h-screen flex flex-col">
-      <div className="flex-1 flex overflow-hidden" style={{ height: 'calc(100vh - 64px)' }}>
+    <main className="pt-24 pb-16 min-h-screen px-4 sm:px-6 lg:px-8 font-sans">
+      <div className="max-w-5xl mx-auto">
 
-        {/* ── Sidebar: Session list ── */}
-        <aside className="w-72 bg-[#0A0F1E] border-r border-white/8 flex flex-col flex-shrink-0">
-          <div className="px-5 py-5 border-b border-white/8">
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-xl ${mentorProfile.initials_bg || 'bg-saffron/20 text-saffron'} flex items-center justify-center font-display font-bold`}>
-                {mentorProfile.initials}
-              </div>
-              <div>
-                <div className="font-display font-bold text-white text-sm">{mentorProfile.name}</div>
-                <div className="text-emerald-400 text-xs flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Mentor Dashboard
-                </div>
-              </div>
+        {/* ── Profile Information ── */}
+        <div className="glass-card border-white/5 p-6 sm:p-8 mb-8 flex flex-col sm:flex-row items-start sm:items-center gap-5">
+          <div className={`w-16 h-16 rounded-2xl ${mentorProfile.initials_bg || 'bg-saffron/20 text-saffron'} flex items-center justify-center font-display font-bold text-xl flex-shrink-0`}>
+            {mentorProfile.initials}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h1 className="font-display text-xl font-bold text-white">{mentorProfile.name}</h1>
+            <p className="text-gray-400 text-sm mt-0.5">{mentorProfile.degree} · {mentorProfile.college}</p>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-lg border bg-saffron/10 text-saffron border-saffron/20">
+                {mentorProfile.stream_category}
+              </span>
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${
+                mentorProfile.available ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-gray-500/10 text-gray-400 border-gray-500/20'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${mentorProfile.available ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
+                {mentorProfile.available ? 'Available' : 'Unavailable'}
+              </span>
             </div>
           </div>
+        </div>
 
-          <div className="px-4 py-3 border-b border-white/5">
-            <p className="text-gray-500 text-xs font-semibold uppercase tracking-wider">
-              Student Conversations ({sessions.length})
-            </p>
-          </div>
+        {/* Tab switchers */}
+        <div className="flex flex-wrap gap-2 mb-8">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(t.id)}
+              className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 border ${
+                activeTab === t.id
+                  ? 'bg-saffron text-white border-saffron shadow-lg shadow-saffron/20'
+                  : 'bg-white/5 border-white/10 text-gray-400 hover:text-white hover:border-white/20'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-          <div className="flex-1 overflow-y-auto">
-            {sessions.length === 0 ? (
-              <div className="text-center py-12 px-4">
-                <div className="text-3xl mb-3">💬</div>
-                <p className="text-gray-400 text-sm">No messages yet.</p>
-                <p className="text-gray-600 text-xs mt-1">Students will appear here when they chat with you.</p>
+        {/* ── Upcoming Booking Requests ── */}
+        {activeTab === 'upcoming' && (
+          <div className="space-y-4">
+            {upcoming.length === 0 ? (
+              <div className="glass-card border-white/5 p-12 text-center text-gray-400 text-sm">
+                ✨ No upcoming booking requests right now.
               </div>
             ) : (
-              sessions.map((sess) => (
-                <button
-                  key={sess.id}
-                  onClick={() => { setActiveSession(sess); setMessages([]) }}
-                  className={`w-full text-left px-4 py-4 border-b border-white/5 transition-all hover:bg-white/5 ${
-                    activeSession?.id === sess.id ? 'bg-saffron/10 border-l-2 border-l-saffron' : ''
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-blue-500/20 text-blue-300 flex items-center justify-center text-sm font-bold flex-shrink-0">
-                      {studentName(sess)[0]?.toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-white text-sm font-semibold truncate">{studentName(sess)}</div>
-                      <div className="text-gray-500 text-xs">
-                        {sess.students?.stream && `${sess.students.stream}`}
-                        {sess.students?.marks ? ` · ${sess.students.marks}%` : ''}
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              ))
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {upcoming.map((b) => (
+                  <BookingCard key={b.id} booking={b} onAccept={handleAccept} onReject={handleReject} onComplete={handleComplete} actionLoading={actionLoading} />
+                ))}
+              </div>
             )}
           </div>
-        </aside>
+        )}
 
-        {/* ── Chat area ── */}
-        <div className="flex-1 flex flex-col bg-[#0D1220]">
-          {!activeSession ? (
-            <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-              <div className="text-5xl mb-5">👈</div>
-              <h3 className="font-display text-xl font-bold text-white mb-2">Select a conversation</h3>
-              <p className="text-gray-400 text-sm">Choose a student from the sidebar to view and reply to their messages.</p>
+        {/* ── Accepted Sessions ── */}
+        {activeTab === 'accepted' && (
+          <div className="space-y-4">
+            {accepted.length === 0 ? (
+              <div className="glass-card border-white/5 p-12 text-center text-gray-400 text-sm">
+                No accepted sessions yet.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {accepted.map((b) => (
+                  <BookingCard key={b.id} booking={b} onAccept={handleAccept} onReject={handleReject} onComplete={handleComplete} actionLoading={actionLoading} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Completed Sessions ── */}
+        {activeTab === 'completed' && (
+          <div className="space-y-4">
+            {completed.length === 0 ? (
+              <div className="glass-card border-white/5 p-12 text-center text-gray-400 text-sm">
+                No completed sessions yet.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {completed.map((b) => (
+                  <BookingCard key={b.id} booking={b} onAccept={handleAccept} onReject={handleReject} onComplete={handleComplete} actionLoading={actionLoading} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Profile Settings ── */}
+        {activeTab === 'settings' && (
+          <form onSubmit={handleSaveSettings} className="glass-card border-white/5 p-6 sm:p-8 max-w-xl space-y-5">
+            <h3 className="font-display text-lg font-bold text-white mb-2">Profile Settings</h3>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-300 mb-1.5">Your Story</label>
+              <textarea
+                rows={4}
+                value={settingsForm.story}
+                onChange={(e) => setSettingsForm((p) => ({ ...p, story: e.target.value }))}
+                className="w-full bg-white/[0.05] border border-white/10 hover:border-white/20 focus:border-saffron/60 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm transition-all outline-none focus:ring-2 focus:ring-saffron/20 resize-none"
+              />
             </div>
-          ) : (
-            <>
-              {/* Chat header */}
-              <div className="flex items-center gap-3 px-6 py-4 border-b border-white/8 bg-[#0A0F1E]">
-                <div className="w-9 h-9 rounded-full bg-blue-500/20 text-blue-300 flex items-center justify-center text-sm font-bold">
-                  {studentName(activeSession)[0]?.toUpperCase()}
-                </div>
-                <div>
-                  <div className="font-display font-bold text-white text-sm">{studentName(activeSession)}</div>
-                  {activeSession.students && (
-                    <div className="text-gray-400 text-xs">
-                      {activeSession.students.stream}{activeSession.students.marks ? ` · ${activeSession.students.marks}% marks` : ''}
-                    </div>
-                  )}
-                </div>
-              </div>
 
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-5 space-y-3">
-                {messages.map((msg) => {
-                  const isMe = msg.sender_id === user?.id
-                  return (
-                    <div key={msg.id} className={`flex gap-2.5 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
-                      <div className={`max-w-[72%] flex flex-col gap-1 ${isMe ? 'items-end' : 'items-start'}`}>
-                        <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                          isMe
-                            ? 'bg-saffron text-white rounded-tr-sm'
-                            : 'bg-white/8 border border-white/10 text-gray-200 rounded-tl-sm'
-                        } ${msg.id?.toString().startsWith('opt-') ? 'opacity-70' : ''}`}>
-                          {msg.content}
-                        </div>
-                        <span className="text-gray-600 text-[10px] px-1">{formatTime(msg.created_at)}</span>
-                      </div>
-                    </div>
-                  )
-                })}
-                <div ref={bottomRef} />
-              </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-300 mb-1.5">LinkedIn Profile URL</label>
+              <input
+                type="text"
+                value={settingsForm.linkedin}
+                onChange={(e) => setSettingsForm((p) => ({ ...p, linkedin: e.target.value }))}
+                placeholder="https://linkedin.com/in/yourname"
+                className="w-full bg-white/[0.05] border border-white/10 hover:border-white/20 focus:border-saffron/60 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm transition-all outline-none focus:ring-2 focus:ring-saffron/20"
+              />
+            </div>
 
-              {/* Input */}
-              <div className="border-t border-white/8 px-5 py-4">
-                <form onSubmit={sendMessage} className="flex gap-2">
-                  <input
-                    type="text"
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    placeholder="Reply to student..."
-                    className="flex-1 bg-white/5 border border-white/10 hover:border-white/20 focus:border-saffron/50 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm outline-none transition-all"
-                    disabled={sending}
-                  />
-                  <button
-                    type="submit"
-                    disabled={!text.trim() || sending}
-                    className="w-11 h-11 rounded-xl bg-saffron hover:bg-saffron-light disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center transition-all hover:scale-105 active:scale-95 flex-shrink-0"
-                    aria-label="Send"
-                  >
-                    {sending ? (
-                      <svg className="animate-spin w-4 h-4 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                    ) : (
-                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                      </svg>
-                    )}
-                  </button>
-                </form>
+            <div className="flex items-center justify-between bg-white/5 rounded-xl p-4 border border-white/5">
+              <div>
+                <p className="text-white text-sm font-semibold">Available for bookings</p>
+                <p className="text-gray-500 text-xs mt-0.5">Turn this off to pause new mentor session requests.</p>
               </div>
-            </>
-          )}
-        </div>
+              <button
+                type="button"
+                onClick={() => setSettingsForm((p) => ({ ...p, available: !p.available }))}
+                className={`w-12 h-6 rounded-full relative transition-colors flex-shrink-0 ${settingsForm.available ? 'bg-saffron' : 'bg-white/10'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${settingsForm.available ? 'translate-x-6' : ''}`} />
+              </button>
+            </div>
+
+            {settingsSaved && (
+              <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs rounded-xl p-3">✅ Profile settings saved.</div>
+            )}
+
+            <button type="submit" disabled={savingSettings} className="btn-primary py-3 px-8 text-sm disabled:opacity-50">
+              {savingSettings ? 'Saving...' : 'Save Settings'}
+            </button>
+          </form>
+        )}
       </div>
     </main>
   )

@@ -1481,7 +1481,7 @@ export async function runMentorAgent(state) {
     try {
       const { data } = await supabase
         .from('mentors')
-        .select('name, role, company, stream_expertise, rating, bio, cal_link')
+        .select('name, role, company, stream_expertise, rating, bio, linkedin')
         .limit(5)
       mentors = data || []
     } catch (_) {}

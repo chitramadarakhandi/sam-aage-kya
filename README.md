@@ -155,6 +155,8 @@ Open **http://localhost:5173**.
 | POST | `/api/pathways/recommend` | Grounded pathway recommendations (+ optional judge) |
 | GET | `/api/predictor/predict` | Rank-vs-cutoff comparison |
 | GET | `/api/mentors` | Mentor directory |
+| POST | `/api/mentors/book` | Submit a "Book Mentor" session request (online-only) |
+| GET | `/api/admin/mentor-bookings` | Admin: list mentor booking requests (needs service role key) |
 | POST | `/api/sync` | Sync local data to DB after sign-in |
 | GET | `/api/analytics` | Stream/state counts (needs service role key) |
 

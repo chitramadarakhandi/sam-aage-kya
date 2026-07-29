@@ -8,11 +8,15 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('analytics') // 'analytics' | 'mentors' | 'users'
   const [analytics, setAnalytics] = useState(null)
   const [applications, setApplications] = useState([])
+  const [bookings, setBookings] = useState([])
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
   const [errorMsg, setErrorMsg] = useState('')
   const [userSearch, setUserSearch] = useState('')
+  // Reject flow: open a modal to collect a reason, then submit it.
+  const [rejectTarget, setRejectTarget] = useState(null) // application being rejected
+  const [rejectReason, setRejectReason] = useState('')
 
   // Client-side role protection. Computed here but enforced at render time
   // (below), so all hooks still run unconditionally in the same order.
@@ -33,11 +37,15 @@ export default function AdminDashboard() {
       const appsRes = await fetch('/api/admin/mentor-applications', { headers })
       const appsData = await appsRes.json()
 
+      const bookingsRes = await fetch('/api/admin/mentor-bookings', { headers })
+      const bookingsData = await bookingsRes.json()
+
       // Fetch users from Supabase directly
       const { data: usersData } = await supabase.from('students').select('id, full_name, role, class_level, created_at, marks, stream, state').order('created_at', { ascending: false }).limit(100)
 
       setAnalytics(analyticsData)
       setApplications(appsData.applications || [])
+      setBookings(bookingsData.bookings || [])
       setUsers(usersData || [])
     } catch (err) {
       console.error('Error fetching admin data:', err)
@@ -75,14 +83,27 @@ export default function AdminDashboard() {
     }
   }
 
-  const handleRejectMentor = async (id) => {
+  const openRejectModal = (app) => {
+    setRejectTarget(app)
+    setRejectReason('')
+  }
+
+  const submitReject = async () => {
+    if (!rejectTarget) return
+    const id = rejectTarget.id
     setActionLoading(id)
     try {
       const res = await fetch(`/api/admin/mentor-applications/${id}/reject`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${session?.access_token}` }
+        headers: {
+          'Authorization': `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reason: rejectReason.trim() }),
       })
       if (!res.ok) throw new Error('Failed to reject')
+      setRejectTarget(null)
+      setRejectReason('')
       await fetchAllData()
     } catch (err) {
       alert(err.message)
@@ -92,6 +113,16 @@ export default function AdminDashboard() {
   }
 
   const pendingMentors = applications.filter(a => a.status === 'pending')
+  const pendingBookings = bookings.filter(b => b.status === 'pending')
+
+  const formatBookingDate = (ts) => {
+    if (!ts) return 'Not specified'
+    try {
+      return new Date(ts).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    } catch {
+      return ts
+    }
+  }
 
   // ── Render Charts ────────────────────────────────────────────
   const renderStreamChart = () => {
@@ -219,7 +250,7 @@ export default function AdminDashboard() {
         <div className="flex flex-wrap gap-2 mb-8">
           {[
             { id: 'analytics', label: '📊 Analytics' },
-            { id: 'mentors', label: `🌟 Mentors (${pendingMentors.length})` },
+            { id: 'mentors', label: `🌟 Mentors (${pendingMentors.length} pending, ${pendingBookings.length} bookings)` },
             { id: 'users', label: `👥 Users (${users.length})` },
           ].map(t => (
             <button
@@ -284,7 +315,62 @@ export default function AdminDashboard() {
 
             {/* ── Tab: Mentors ── */}
             {activeTab === 'mentors' && (
-              <div className="space-y-4">
+              <div className="space-y-10">
+
+                {/* ── Mentor Booking Requests ── */}
+                <div className="space-y-4">
+                  <h3 className="font-display text-lg font-bold text-white mb-2">Mentor Booking Requests</h3>
+                  {bookings.length === 0 ? (
+                    <div className="glass-card border-white/5 p-12 text-center text-gray-400 text-sm">
+                      📅 No mentor booking requests yet.
+                    </div>
+                  ) : (
+                    <div className="glass-card border-white/5 overflow-hidden rounded-2xl">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-white/5 text-xs text-gray-500 uppercase tracking-wider">
+                              <th className="text-left px-5 py-3">Student</th>
+                              <th className="text-left px-5 py-3">Mentor</th>
+                              <th className="text-left px-5 py-3">Class</th>
+                              <th className="text-left px-5 py-3">Interest</th>
+                              <th className="text-left px-5 py-3">Language</th>
+                              <th className="text-left px-5 py-3">Preferred Date/Time</th>
+                              <th className="text-left px-5 py-3">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/5">
+                            {bookings.map((b) => (
+                              <tr key={b.id} className="hover:bg-white/[0.03] transition-colors align-top">
+                                <td className="px-5 py-3">
+                                  <div className="text-white font-medium">{b.contact_name || '—'}</div>
+                                  <div className="text-gray-500 text-xs">{b.contact_email}</div>
+                                  {b.contact_phone && <div className="text-gray-500 text-xs">{b.contact_phone}</div>}
+                                </td>
+                                <td className="px-5 py-3 text-gray-300">{b.mentors?.name || '—'}</td>
+                                <td className="px-5 py-3 text-gray-400 text-xs">{b.class_level || '—'}</td>
+                                <td className="px-5 py-3 text-gray-400 text-xs">{b.area_of_interest || '—'}</td>
+                                <td className="px-5 py-3 text-gray-400 text-xs">{b.preferred_language || '—'}</td>
+                                <td className="px-5 py-3 text-gray-400 text-xs">{formatBookingDate(b.session_date)}</td>
+                                <td className="px-5 py-3">
+                                  <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                                    b.status === 'completed' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                    : b.status === 'accepted' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                                    : b.status === 'rejected' ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                                    : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                                  }`}>{b.status || 'pending'}</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Mentor Applications ── */}
+                <div className="space-y-4">
                 <h3 className="font-display text-lg font-bold text-white mb-2">Pending Mentor Applications</h3>
                 {pendingMentors.length === 0 ? (
                   <div className="glass-card border-white/5 p-12 text-center text-gray-400 text-sm">
@@ -334,16 +420,6 @@ export default function AdminDashboard() {
                               <span className="text-gray-500 text-xs italic">No LinkedIn provided</span>
                             )}
 
-                            {app.cal_link && (
-                              <a
-                                href={app.cal_link.startsWith('http') ? app.cal_link : `https://${app.cal_link}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 hover:bg-emerald-500/20 transition-all font-semibold"
-                              >
-                                📅 Cal.com Booking Link ↗
-                              </a>
-                            )}
                           </div>
 
                           <div className="text-xs text-gray-300 leading-relaxed mb-6 bg-white/[0.02] p-3 rounded-xl border border-white/5">
@@ -361,7 +437,7 @@ export default function AdminDashboard() {
                             {actionLoading === app.id ? 'Processing...' : '✅ Approve Mentor'}
                           </button>
                           <button
-                            onClick={() => handleRejectMentor(app.id)}
+                            onClick={() => openRejectModal(app)}
                             disabled={actionLoading === app.id}
                             className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/20 text-rose-300 transition-all text-center disabled:opacity-50"
                           >
@@ -372,6 +448,7 @@ export default function AdminDashboard() {
                     ))}
                   </div>
                 )}
+                </div>
               </div>
             )}
 
@@ -454,6 +531,53 @@ export default function AdminDashboard() {
           </div>
         )}
       </div>
+
+      {/* ── Reject reason modal ── */}
+      {rejectTarget && (
+        <div className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="glass-card w-full max-w-md p-6 sm:p-8 border-rose-500/30 relative shadow-2xl">
+            <button
+              onClick={() => setRejectTarget(null)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors text-2xl"
+              aria-label="Close"
+            >
+              &times;
+            </button>
+            <div className="text-center mb-5">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-2xl mx-auto mb-3">❌</div>
+              <h2 className="font-display text-xl font-bold text-white">Reject Application</h2>
+              <p className="text-gray-400 text-sm mt-1">
+                Let <span className="text-white font-medium">{rejectTarget.name}</span> know why. This reason is emailed to them.
+              </p>
+            </div>
+
+            <label className="block text-xs font-semibold text-gray-300 mb-1.5">Reason for rejection *</label>
+            <textarea
+              rows={4}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="e.g. We're looking for mentors with more experience in your chosen domain right now."
+              className="w-full bg-white/[0.05] border border-white/10 hover:border-white/20 focus:border-rose-500/60 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm transition-all outline-none focus:ring-2 focus:ring-rose-500/20 resize-none"
+            />
+
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={() => setRejectTarget(null)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitReject}
+                disabled={!rejectReason.trim() || actionLoading === rejectTarget.id}
+                className="flex-1 py-2.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 border border-rose-500/30 text-white transition-all disabled:opacity-50"
+              >
+                {actionLoading === rejectTarget.id ? 'Rejecting...' : 'Confirm Reject'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

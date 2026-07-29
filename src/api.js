@@ -55,6 +55,14 @@ export async function postMentorApply(payload) {
   })
 }
 
+export async function postMentorBook(payload, authToken) {
+  return apiFetch('/api/mentors/book', {
+    method: 'POST',
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    body: JSON.stringify(payload),
+  })
+}
+
 export async function postSync(formData, result, authToken) {
   return apiFetch('/api/sync', {
     method: 'POST',

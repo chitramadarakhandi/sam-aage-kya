@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import MentorChat from '../components/MentorChat'
+import MentorBookingModal from '../components/MentorBookingModal'
 import AuthModal from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
 import { getMentors, postMentorApply } from '../api'
@@ -18,7 +19,6 @@ const MENTORS = [
     stream: 'PCB → ECE',
     stream_category: 'Science (PCB)',
     city: 'Bengaluru',
-    calLink: '',
     story: "I missed NEET by 8 marks. Ended up in ECE. Here's what I wish someone told me.",
     tags: ['NEET dropout', 'Bio to Engineering', 'Career pivot'],
     gradient: 'from-blue-500/30 to-blue-600/10',
@@ -36,7 +36,6 @@ const MENTORS = [
     stream: 'PCM → CSE',
     stream_category: 'Science (PCM)',
     city: 'Mangaluru',
-    calLink: '',
     story: "First in my family to leave home for college. It was terrifying. I'll tell you exactly what helped.",
     tags: ['First-gen student', 'Hostel life', 'Scholarships'],
     gradient: 'from-purple-500/30 to-purple-600/10',
@@ -54,7 +53,6 @@ const MENTORS = [
     stream: 'Commerce',
     stream_category: 'Commerce',
     city: 'Pune',
-    calLink: '',
     story: "Family wanted CA. I wanted something else. Here's how I navigated that conversation.",
     tags: ['Family pressure', 'Commerce', 'Non-CA path'],
     gradient: 'from-emerald-500/30 to-emerald-600/10',
@@ -98,9 +96,7 @@ const CONCERNS = [
 
 // ─── MentorCard ──────────────────────────────────────────────────────────────
 
-function MentorCard({ mentor, index, isBestMatch, onChat }) {
-  const bookingLink = mentor.cal_link || mentor.calLink
-  const hasBookingLink = !!bookingLink && bookingLink.trim() !== '#'
+function MentorCard({ mentor, index, isBestMatch, onChat, onBook }) {
   return (
     <div
       className={`glass-card flex flex-col hover:scale-[1.02] transition-all duration-300 overflow-hidden group animate-slide-up relative ${
@@ -189,26 +185,13 @@ function MentorCard({ mentor, index, isBestMatch, onChat }) {
 
         {/* CTAs */}
         <div className="grid grid-cols-2 gap-2">
-          {hasBookingLink ? (
-            <a
-              href={bookingLink}
-              target="_blank"
-              rel="noreferrer"
-              className="btn-outline text-xs py-2.5 text-center flex items-center justify-center gap-1.5"
-            >
-              📅 Book Call
-            </a>
-          ) : (
-            <button
-              type="button"
-              disabled
-              title="Booking unavailable — this mentor hasn't set up a booking link yet"
-              aria-label="Booking unavailable — this mentor hasn't set up a booking link yet"
-              className="btn-outline text-xs py-2.5 text-center flex items-center justify-center gap-1.5 opacity-50 cursor-not-allowed hover:bg-transparent hover:text-saffron hover:scale-100 active:scale-100"
-            >
-              📅 Book Call
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => onBook(mentor)}
+            className="btn-outline text-xs py-2.5 text-center flex items-center justify-center gap-1.5"
+          >
+            📅 Book Mentor
+          </button>
           <button
             onClick={() => onChat(mentor)}
             className="btn-primary text-xs py-2.5 flex items-center justify-center gap-1.5"
@@ -237,6 +220,7 @@ export default function Mentors() {
   const [submitting, setSubmitting]       = useState(false)
   const [submitError, setSubmitError]     = useState('')
   const [chatTarget, setChatTarget]       = useState(null)
+  const [bookTarget, setBookTarget]       = useState(null)
   const [isAuthOpen, setIsAuthOpen]       = useState(false)
   const [volunteerForm, setVolunteerForm] = useState({
     name: '', email: '', college: '', degree: '', stream: '', story: '',
@@ -253,6 +237,11 @@ export default function Mentors() {
   const handleChat = (mentor) => {
     if (!user) { setIsAuthOpen(true); return }
     setChatTarget(mentor)
+  }
+
+  const handleBook = (mentor) => {
+    if (!user) { setIsAuthOpen(true); return }
+    setBookTarget(mentor)
   }
 
   const handleChange = (e) => {
@@ -426,6 +415,7 @@ export default function Mentors() {
                 index={i}
                 isBestMatch={activeConcern !== null && activeConcern !== 'all' && matchesConcern(mentor, activeConcern)}
                 onChat={handleChat}
+                onBook={handleBook}
               />
             ))}
           </div>
@@ -465,6 +455,14 @@ export default function Mentors() {
           mentor={chatTarget}
           onClose={() => setChatTarget(null)}
           onSignInRequest={() => { setChatTarget(null); setIsAuthOpen(true) }}
+        />
+      )}
+
+      {/* ── Book Mentor modal ── */}
+      {bookTarget && (
+        <MentorBookingModal
+          mentor={bookTarget}
+          onClose={() => setBookTarget(null)}
         />
       )}
 

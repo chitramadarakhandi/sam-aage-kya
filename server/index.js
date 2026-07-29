@@ -132,7 +132,7 @@ function createRateLimiter(limit, windowMs, message) {
 const isDev = process.env.NODE_ENV !== 'production'
 const guidanceLimiter = createRateLimiter(isDev ? 50 : 5, 86400000, "You can only generate 5 career guidance reports per day to prevent system abuse. Please try again tomorrow.")
 const roadmapLimiter  = createRateLimiter(isDev ? 50 : 5, 86400000, "You can only generate 5 career roadmaps per day to prevent system abuse. Please try again tomorrow.")
-const mentorApplyLimiter = createRateLimiter(1, 3600000, "You can only submit one application per hour. Please try again later.")
+const mentorApplyLimiter = createRateLimiter(isDev ? 50 : 3, 3600000, "You can only submit a few applications per hour. Please try again later.")
 const transcribeLimiter  = createRateLimiter(15, 3600000, "You have exceeded the transcription rate limit. Please try again in an hour.")
 
 
@@ -1851,7 +1851,7 @@ const HARDCODED_MENTORS = [
     stream: 'PCB → ECE',
     stream_category: 'Science (PCB)',
     city: 'Bengaluru',
-    cal_link: '',
+    linkedin: '',
     story: "I missed NEET by 8 marks. Ended up in ECE. Here's what I wish someone told me.",
     tags: ['NEET dropout', 'Bio to Engineering', 'Career pivot'],
     gradient: 'from-blue-500/30 to-blue-600/10',
@@ -1869,7 +1869,7 @@ const HARDCODED_MENTORS = [
     stream: 'PCM → CSE',
     stream_category: 'Science (PCM)',
     city: 'Mangaluru',
-    cal_link: '',
+    linkedin: '',
     story: "First in my family to leave home for college. It was terrifying. I'll tell you exactly what helped.",
     tags: ['First-gen student', 'Hostel life', 'Scholarships'],
     gradient: 'from-purple-500/30 to-purple-600/10',
@@ -1887,7 +1887,7 @@ const HARDCODED_MENTORS = [
     stream: 'Commerce',
     stream_category: 'Commerce',
     city: 'Pune',
-    cal_link: '',
+    linkedin: '',
     story: "Family wanted CA. I wanted something else. Here's how I navigated that conversation.",
     tags: ['Family pressure', 'Commerce', 'Non-CA path'],
     gradient: 'from-emerald-500/30 to-emerald-600/10',
@@ -1905,7 +1905,7 @@ const HARDCODED_MENTORS = [
     stream: 'Class 10 → Humanities',
     stream_category: 'Class 10 / Stream Selection',
     city: 'Delhi',
-    cal_link: '',
+    linkedin: '',
     story: "I spent months stressing over whether to take PCM or Arts. I chose Arts and it was the best decision of my life. Let's figure out what fits you.",
     tags: ['Stream selection', 'Humanities', 'Parent pressure'],
     gradient: 'from-amber-500/30 to-amber-600/10',
@@ -1954,7 +1954,7 @@ const validateApplyBody = (req, res, next) => {
 
 app.post('/api/mentors/apply', validateApplyBody, mentorApplyLimiter, async (req, res) => {
   try {
-    const { name, email, college, degree, stream, story, profession, streamExpertise, yearsExp, calLink, linkedIn } = req.body
+    const { name, email, college, degree, stream, story, profession, streamExpertise, yearsExp, linkedIn } = req.body
 
 
     if (!supabaseAdmin || !isSupabaseConfigured()) {
@@ -1974,7 +1974,6 @@ app.post('/api/mentors/apply', validateApplyBody, mentorApplyLimiter, async (req
         profession: profession || '',
         stream_category: streamExpertise || '',
         experience_years: parseInt(yearsExp, 10) || 0,
-        cal_link: calLink || '',
         linkedin: linkedIn || '',
         status: 'pending'
       })
@@ -1984,6 +1983,120 @@ app.post('/api/mentors/apply', validateApplyBody, mentorApplyLimiter, async (req
     res.json({ success: true })
   } catch (err) {
     console.error('Mentor application error:', err.message)
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
+  }
+})
+
+// ── POST /api/mentors/book — "Book Mentor" request (replaces Cal.com) ────────
+// All mentor sessions are conducted online — there is no mode selection.
+// Saves a booking request in mentor_sessions (status: 'pending'), then
+// notifies the student and admin by email (best-effort, non-blocking).
+const mentorBookLimiter = createRateLimiter(5, 3600000, 'You can only submit a few booking requests per hour. Please try again later.')
+app.post('/api/mentors/book', requireAuth(), mentorBookLimiter, async (req, res) => {
+  const user = req.authUser
+  const {
+    mentorId,
+    contactName,
+    contactEmail,
+    contactPhone,
+    classLevel,
+    areaOfInterest,
+    preferredLanguage,
+    preferredDateTime,
+    guidanceQuery,
+  } = req.body
+
+  if (!mentorId || !contactName || !contactEmail || !classLevel || !areaOfInterest || !preferredLanguage || !guidanceQuery) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'Please fill in all required fields.' })
+  }
+
+  // Demo/dev accounts (loginAsDemo on the frontend) use fake UUIDs that have
+  // no matching auth.users row, so they can never satisfy the students
+  // foreign key. Simulate success instead of attempting a real DB write.
+  const authHeaderToken = (req.headers.authorization || '').split(' ')[1]
+  if (authHeaderToken === 'demo-student-token' || authHeaderToken === 'demo-admin-token' || authHeaderToken === 'demo-mentor-token') {
+    console.warn(`Mentor booking simulated for demo user ${user.email} — demo accounts are not persisted to the database`)
+    return res.json({ success: true, simulated: true })
+  }
+
+  try {
+    const client = getSupabaseClient(req.headers.authorization)
+
+    const { data: mentorRow, error: mentorErr } = await client
+      .from('mentors')
+      .select('id, name')
+      .eq('id', mentorId)
+      .maybeSingle()
+    if (mentorErr || !mentorRow) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Mentor not found.' })
+    }
+
+    // mentor_sessions.student_id references public.students(id), not
+    // auth.users(id) directly. A user who is authenticated but has never
+    // completed onboarding may not have a students row yet, which would
+    // otherwise fail the insert below with a foreign key violation.
+    const { data: existingStudent } = await client
+      .from('students')
+      .select('id')
+      .eq('id', user.id)
+      .maybeSingle()
+    if (!existingStudent) {
+      await resilientUpsertStudent(client, { id: user.id, full_name: contactName })
+    }
+
+    const { data: booking, error: insertErr } = await client
+      .from('mentor_sessions')
+      .insert({
+        student_id: user.id,
+        mentor_id: mentorId,
+        session_date: preferredDateTime || null,
+        status: 'pending',
+        contact_name: contactName,
+        contact_email: contactEmail,
+        contact_phone: contactPhone || '',
+        class_level: classLevel,
+        area_of_interest: areaOfInterest,
+        preferred_language: preferredLanguage,
+        guidance_query: guidanceQuery,
+      })
+      .select()
+      .single()
+
+    if (insertErr) throw insertErr
+
+    // Fire-and-forget email notifications — booking still succeeds if these fail.
+    const mentorName = mentorRow.name || 'your mentor'
+    sendEmail(
+      contactEmail,
+      'Your Mentor Session Request — Aage Kya?',
+      `<p>Hi ${contactName},</p>
+       <p>Your mentor session request with <strong>${mentorName}</strong> has been received.</p>
+       <p>Further details will be shared with you at this email address once the mentor confirms.</p>
+       <p><strong>What you asked for:</strong> ${guidanceQuery}</p>
+       <p>— Team Aage Kya?</p>`
+    ).catch(() => {})
+
+    const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL
+    if (adminEmail) {
+      sendEmail(
+        adminEmail,
+        'New Mentor Booking Request',
+        `<p>A new mentor booking request was submitted.</p>
+         <ul>
+           <li><strong>Student:</strong> ${contactName} (${contactEmail})</li>
+           <li><strong>Mentor:</strong> ${mentorName}</li>
+           <li><strong>Class Level:</strong> ${classLevel}</li>
+           <li><strong>Area of Interest:</strong> ${areaOfInterest}</li>
+           <li><strong>Preferred Language:</strong> ${preferredLanguage}</li>
+           <li><strong>Preferred Date/Time:</strong> ${preferredDateTime || 'Not specified'}</li>
+           <li><strong>Guidance Needed:</strong> ${guidanceQuery}</li>
+         </ul>`
+      ).catch(() => {})
+    }
+
+    res.json({ success: true, booking })
+  } catch (err) {
+    console.error('Mentor booking error:', err.message)
     res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
   }
 })
@@ -2694,6 +2807,21 @@ app.post('/api/course-feedback', requireAuth(), courseFeedbackLimiter, async (re
 
 // ─── Admin Endpoints ──────────────────────────────────────────────────────────
 
+// GET /api/admin/mentor-bookings — Fetch all "Book Mentor" requests
+app.get('/api/admin/mentor-bookings', requireRole('admin'), async (req, res) => {
+  const client = supabaseAdmin || supabase
+  try {
+    const { data, error } = await client
+      .from('mentor_sessions')
+      .select('*, mentors(name, initials, stream_category)')
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    res.json({ bookings: data || [] })
+  } catch (err) {
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
+  }
+})
+
 // GET /api/admin/mentor-applications — Fetch all applications
 app.get('/api/admin/mentor-applications', requireRole('admin'), async (req, res) => {
   const client = supabaseAdmin || supabase
@@ -2743,7 +2871,6 @@ app.post('/api/admin/mentor-applications/:id/approve', requireRole('admin'), asy
         stream: app.stream_transition || app.stream_category || 'General',
         stream_category: app.stream_category || 'Other',
         city: 'Online',
-        cal_link: app.cal_link || '',
         linkedin: app.linkedin || '',
         story: app.story,
         tags: [app.degree || app.profession || 'Mentor', 'Approved'],
@@ -2763,6 +2890,18 @@ app.post('/api/admin/mentor-applications/:id/approve', requireRole('admin'), asy
 
     if (updateErr) throw updateErr
 
+    // Notify the applicant that they've been approved (best-effort).
+    if (app.email) {
+      sendEmail(
+        app.email,
+        'Your Mentor Application Was Approved — Aage Kya?',
+        `<p>Hi ${app.name},</p>
+         <p>Great news — your application to become a mentor on Aage Kya? has been <strong>approved</strong>.</p>
+         <p>Your profile is now live and students can book sessions with you. Welcome aboard!</p>
+         <p>— Team Aage Kya?</p>`
+      ).catch(() => {})
+    }
+
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
@@ -2770,15 +2909,51 @@ app.post('/api/admin/mentor-applications/:id/approve', requireRole('admin'), asy
 })
 
 // POST /api/admin/mentor-applications/:id/reject — Reject a mentor application
+// Accepts an optional { reason } so the applicant is told why.
 app.post('/api/admin/mentor-applications/:id/reject', requireRole('admin'), async (req, res) => {
   const { id } = req.params
+  const reason = (req.body?.reason || '').trim()
   const client = supabaseAdmin || supabase
   try {
-    const { error } = await client
+    // Fetch applicant details for the notification email.
+    const { data: app } = await client
       .from('mentor_applications')
-      .update({ status: 'rejected' })
+      .select('name, email')
       .eq('id', id)
+      .maybeSingle()
+
+    let { error } = await client
+      .from('mentor_applications')
+      .update({ status: 'rejected', rejection_reason: reason })
+      .eq('id', id)
+    // If the rejection_reason column hasn't been migrated yet, fall back to
+    // updating just the status so the reject still succeeds (the reason is
+    // still delivered to the applicant by email below).
+    if (error && (error.code === 'PGRST204' || error.code === '42703' || error.message?.includes('rejection_reason'))) {
+      console.warn('[mentor reject] rejection_reason column missing — run supabase_mentor_application_fields.sql. Falling back to status-only update.')
+      const retry = await client
+        .from('mentor_applications')
+        .update({ status: 'rejected' })
+        .eq('id', id)
+      error = retry.error
+    }
     if (error) throw error
+
+    // Notify the applicant with the rejection reason (best-effort).
+    if (app?.email) {
+      sendEmail(
+        app.email,
+        'Update on Your Mentor Application — Aage Kya?',
+        `<p>Hi ${app.name || 'there'},</p>
+         <p>Thank you for applying to become a mentor on Aage Kya?. After review, we're
+         unable to approve your application at this time.</p>
+         ${reason ? `<p><strong>Reason:</strong> ${reason}</p>` : ''}
+         <p>You're welcome to apply again in the future. Thank you for your interest in
+         helping students.</p>
+         <p>— Team Aage Kya?</p>`
+      ).catch(() => {})
+    }
+
     res.json({ success: true })
   } catch (err) {
     res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })

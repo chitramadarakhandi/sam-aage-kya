@@ -540,35 +540,16 @@ function MentorTeaserBox({ mentor }) {
         <p className="text-gray-300 text-sm mt-2.5 leading-relaxed italic">&ldquo;{mentor.story}&rdquo;</p>
       </div>
       <div className="w-full sm:w-auto flex-shrink-0 pt-2 sm:pt-0">
-        {mentor.cal_link && mentor.cal_link.trim() !== '#' ? (
-          <>
-            <a
-              href={mentor.cal_link}
-              target="_blank"
-              rel="noreferrer"
-              className="btn-primary py-3 px-6 text-sm flex items-center justify-center gap-2 group/btn w-full sm:w-auto text-center"
-            >
-              <span>Book Free Call</span>
-              <svg className="w-4 h-4 group-hover/btn:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </a>
-            <p className="text-center text-gray-600 text-[10px] mt-1.5">20 min · Completely free</p>
-          </>
-        ) : (
-          <>
-            <Link
-              to="/mentors"
-              className="btn-primary py-3 px-6 text-sm flex items-center justify-center gap-2 group/btn w-full sm:w-auto text-center"
-            >
-              <span>Connect with a Mentor</span>
-              <svg className="w-4 h-4 group-hover/btn:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
-            </Link>
-            <p className="text-center text-gray-600 text-[10px] mt-1.5">Chat free on the Mentors page</p>
-          </>
-        )}
+        <Link
+          to="/mentors"
+          className="btn-primary py-3 px-6 text-sm flex items-center justify-center gap-2 group/btn w-full sm:w-auto text-center"
+        >
+          <span>Book Mentor</span>
+          <svg className="w-4 h-4 group-hover/btn:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </Link>
+        <p className="text-center text-gray-600 text-[10px] mt-1.5">Free · Online session</p>
       </div>
     </div>
   )

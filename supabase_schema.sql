@@ -260,7 +260,7 @@ ALTER TABLE public.students ADD COLUMN IF NOT EXISTS coaching_access BOOLEAN;
 ALTER TABLE public.mentors ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_mentors_user_id ON public.mentors (user_id);
 
--- Mentors can update their own row (e.g. set availability, update cal_link)
+-- Mentors can update their own row (e.g. set availability, update linkedin)
 DROP POLICY IF EXISTS "mentors_self_write" ON public.mentors;
 CREATE POLICY "mentors_self_write"
   ON public.mentors FOR UPDATE

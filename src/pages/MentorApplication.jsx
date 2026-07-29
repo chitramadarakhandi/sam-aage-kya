@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from '../supabaseClient'
+import { postMentorApply } from '../api'
 
 const STREAM_OPTIONS = ['Science (PCM)', 'Science (PCB)', 'Commerce', 'Arts / Humanities', 'Any Stream']
 
@@ -9,7 +9,7 @@ export default function MentorApplication() {
   const navigate = useNavigate()
   const [form, setForm] = useState({
     name: '', email: '', profession: '', college: '', degree: '',
-    streamExpertise: '', yearsExp: '', bio: '', calLink: '', linkedIn: '',
+    streamExpertise: '', yearsExp: '', bio: '', linkedIn: '',
   })
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -19,20 +19,27 @@ export default function MentorApplication() {
 
   const handleSubmit = async e => {
     e.preventDefault()
-    if (!form.name || !form.email || !form.profession || !form.bio || !form.calLink) {
+    if (!form.name || !form.email || !form.profession || !form.bio || !form.linkedIn) {
       setError('Please fill all required fields.')
       return
     }
     setLoading(true); setError('')
     try {
-      const { error: err } = await supabase.from('mentor_applications').insert({
-        name: form.name, email: form.email, profession: form.profession,
-        college: form.college, degree: form.degree,
-        stream_category: form.streamExpertise, experience_years: parseInt(form.yearsExp) || 0,
-        story: form.bio, cal_link: form.calLink, linkedin: form.linkedIn,
-        status: 'pending',
+      const res = await postMentorApply({
+        name: form.name,
+        email: form.email,
+        profession: form.profession,
+        college: form.college,
+        degree: form.degree,
+        streamExpertise: form.streamExpertise,
+        yearsExp: form.yearsExp,
+        story: form.bio,
+        linkedIn: form.linkedIn,
       })
-      if (err) throw err
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || 'Submission failed. Please try again.')
+      }
       setSuccess(true)
     } catch (err) {
       setError(err.message || 'Submission failed. Please try again.')
@@ -111,13 +118,9 @@ export default function MentorApplication() {
               <textarea rows={4} value={form.bio} onChange={set('bio')} placeholder="Share your journey, what you wish you knew, and why you want to guide students..." className={`${inputCls} resize-none`} />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-300 mb-1.5">Cal.com Booking Link *</label>
-              <input value={form.calLink} onChange={set('calLink')} placeholder="https://cal.com/yourname/20min" className={inputCls} />
-              <p className="text-gray-600 text-xs mt-1">Create a free account at cal.com and set up a 20-min meeting slot.</p>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-300 mb-1.5">LinkedIn Profile URL</label>
+              <label className="block text-xs font-semibold text-gray-300 mb-1.5">LinkedIn Profile URL *</label>
               <input value={form.linkedIn} onChange={set('linkedIn')} placeholder="https://linkedin.com/in/yourname" className={inputCls} />
+              <p className="text-gray-600 text-xs mt-1">Used to verify your identity and background during review.</p>
             </div>
             <button type="submit" disabled={loading} className="w-full btn-primary py-4 text-base font-bold disabled:opacity-60">
               {loading ? 'Submitting...' : 'Submit Application →'}

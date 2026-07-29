@@ -516,14 +516,12 @@ export default function Dashboard() {
                       <p className="text-gray-400 text-xs mt-0.5">{matchedMentor.headline} · {matchedMentor.experience_years} yrs exp</p>
                       <p className="text-gray-300 text-sm mt-2 max-w-xl leading-relaxed">{matchedMentor.bio}</p>
                     </div>
-                    <a
-                      href={matchedMentor.cal_link}
-                      target="_blank"
-                      rel="noreferrer"
+                    <Link
+                      to="/mentors"
                       className="btn-primary py-2.5 px-5 text-xs font-semibold shrink-0"
                     >
-                      Book 20-Min Call
-                    </a>
+                      Book Mentor
+                    </Link>
                   </div>
                 )}
               </>

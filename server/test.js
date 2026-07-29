@@ -144,7 +144,7 @@ describe('Aage Kya? API Integration Tests', () => {
     assert.ok(Array.isArray(data))
     assert.ok(data.length > 0)
     assert.ok(data[0].hasOwnProperty('name'))
-    assert.ok(data[0].hasOwnProperty('cal_link'))
+    assert.ok(data[0].hasOwnProperty('linkedin'))
   })
 
   // 3. Mentors apply endpoint validation

@@ -10,17 +10,23 @@ export default function Navbar() {
   const onboardingLink = '/onboarding'
   const resultLink = profile?.class_level === 'class10' ? '/class10/result' : '/result'
 
-  const navLinks = [
-    { to: '/',           label: 'Home' },
-    { to: '/explore',    label: 'Explore Paths' },
-    { to: onboardingLink, label: 'Get Started' },
-    { to: '/career-pipeline', label: 'Careers' },
-    { to: '/competitive-exams', label: 'Exams' },
-    { to: '/online-education', label: 'Learn Online' },
-    { to: '/scholarships', label: 'Scholarships' },
-    { to: '/study-abroad', label: 'Abroad' },
-    { to: '/mentors',    label: 'Mentors' },
-  ]
+  const isAdminUser = profile?.role === 'admin'
+
+  // Admins get a stripped-down nav — only their Admin Dashboard. All the
+  // student-facing sections (Home, Explore, Careers, etc.) are hidden.
+  const navLinks = isAdminUser
+    ? [{ to: '/admin-dashboard', label: 'Admin Dashboard' }]
+    : [
+        { to: '/',           label: 'Home' },
+        { to: '/explore',    label: 'Explore Paths' },
+        { to: onboardingLink, label: 'Get Started' },
+        { to: '/career-pipeline', label: 'Careers' },
+        { to: '/competitive-exams', label: 'Exams' },
+        { to: '/online-education', label: 'Learn Online' },
+        { to: '/scholarships', label: 'Scholarships' },
+        { to: '/study-abroad', label: 'Abroad' },
+        { to: '/mentors',    label: 'Mentors' },
+      ]
   const [isOpen, setIsOpen]     = useState(false)
   const [isAuthOpen, setIsAuthOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
@@ -69,7 +75,7 @@ export default function Navbar() {
           <div className="flex items-center justify-between h-16">
 
             {/* Logo */}
-            <Link to="/" className="flex items-center gap-2.5 group flex-shrink-0">
+            <Link to={isAdminUser ? '/admin-dashboard' : '/'} className="flex items-center gap-2.5 group flex-shrink-0">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-saffron to-saffron-dark flex items-center justify-center text-white font-bold text-sm font-display group-hover:scale-110 transition-transform duration-200 shadow-md">
                 AK
               </div>
@@ -136,16 +142,18 @@ export default function Navbar() {
                         </p>
                       </div>
                       <div className="py-1">
-                        <Link
-                          to="/dashboard"
-                          onClick={() => setDropdownOpen(false)}
-                          className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5 transition-colors"
-                        >
-                          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                          </svg>
-                          Dashboard
-                        </Link>
+                        {!isAdmin && (
+                          <Link
+                            to="/dashboard"
+                            onClick={() => setDropdownOpen(false)}
+                            className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5 transition-colors"
+                          >
+                            <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                            </svg>
+                            Dashboard
+                          </Link>
+                        )}
                         {isAdmin && (
                           <Link
                             to="/admin-dashboard"
@@ -170,16 +178,18 @@ export default function Navbar() {
                             Mentor Dashboard
                           </Link>
                         )}
-                        <Link
-                          to={resultLink}
-                          onClick={() => setDropdownOpen(false)}
-                          className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5 transition-colors"
-                        >
-                          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                          </svg>
-                          My Results
-                        </Link>
+                        {!isAdmin && (
+                          <Link
+                            to={resultLink}
+                            onClick={() => setDropdownOpen(false)}
+                            className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5 transition-colors"
+                          >
+                            <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                            My Results
+                          </Link>
+                        )}
                       </div>
                       <div className="border-t border-white/5 py-1">
                         <button
@@ -249,9 +259,11 @@ export default function Navbar() {
               <div className="pt-3 border-t border-white/5 space-y-2">
                 {user ? (
                   <>
-                    <Link to="/dashboard" onClick={() => setIsOpen(false)} className="block px-3 py-2.5 rounded-xl text-sm text-gray-300 hover:text-white hover:bg-white/5">
-                      Dashboard
-                    </Link>
+                    {!isAdmin && (
+                      <Link to="/dashboard" onClick={() => setIsOpen(false)} className="block px-3 py-2.5 rounded-xl text-sm text-gray-300 hover:text-white hover:bg-white/5">
+                        Dashboard
+                      </Link>
+                    )}
                     {isAdmin && (
                       <Link to="/admin-dashboard" onClick={() => setIsOpen(false)} className="block px-3 py-2.5 rounded-xl text-sm text-gray-300 hover:text-white hover:bg-white/5">
                         Admin Dashboard
