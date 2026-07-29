@@ -1586,6 +1586,62 @@ app.post('/api/generate-career-path', async (req, res) => {
   }
 })
 
+// ── Course Catalog: AI generator ─────────────────────────────────────────────
+function buildCourseInfoPrompt(courseName) {
+  return `You are an expert Indian education and admissions counselor.
+Generate a detailed, realistic course/degree guide for: "${courseName}" (as offered in India).
+
+Respond ONLY with a raw JSON object (no markdown, no backticks) in EXACTLY this shape:
+{
+  "category": "Short category like 'Science & Engineering', 'Commerce & Management', 'Arts & Humanities', 'Healthcare & Science', 'Vocational & ITI', etc.",
+  "title": "${courseName}",
+  "icon": "A single emoji representing the course",
+  "duration": "e.g. 3 Years / 4 Years",
+  "eligibility": "Entry eligibility (class 10/12, stream, marks)",
+  "description": "2-3 sentence overview of the course",
+  "subjects": "Comma-separated key subjects covered",
+  "requiredSkills": "Comma-separated skills a student needs",
+  "entranceExams": "Relevant Indian entrance exams or admission mode",
+  "futureScope": "Comma-separated job roles / career options",
+  "salary": "Realistic starting salary range in INR",
+  "higherStudies": "Comma-separated higher study options",
+  "importantInfo": "One practical, honest tip about this course in India"
+}`
+}
+
+function getMockCourse(courseName) {
+  return {
+    category: 'General',
+    title: courseName,
+    icon: '📘',
+    duration: 'Varies',
+    eligibility: 'Class 12 pass (check specific institute requirements)',
+    description: `${courseName} is a course option in India. Detailed AI generation was unavailable, so please verify specifics with official institute sources.`,
+    subjects: 'Core foundational subjects relevant to the field',
+    requiredSkills: 'Discipline, curiosity, subject aptitude',
+    entranceExams: 'Varies by college — check CUET / state CETs / institute tests',
+    futureScope: 'Multiple roles depending on specialization',
+    salary: '₹3 LPA – ₹8 LPA (indicative)',
+    higherStudies: 'Postgraduate degree in the same or allied field',
+    importantInfo: 'Always verify eligibility, fees, and accreditation on the official institute website.',
+  }
+}
+
+app.post('/api/generate-course', async (req, res) => {
+  const { courseName } = req.body
+  if (!courseName || !courseName.trim()) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'Missing courseName' })
+  }
+  try {
+    const prompt = buildCourseInfoPrompt(courseName.trim())
+    const result = await callLLM(prompt, { json: true, maxTokens: 1024, temperature: 0.6, callType: 'course_info' })
+    res.json(result)
+  } catch (err) {
+    console.warn('[CourseInfo] AI generation failed, falling back to mock:', err.message)
+    res.json(getMockCourse(courseName.trim()))
+  }
+})
+
 // Sync local cache data to server DB upon user logging in
 app.post('/api/sync', async (req, res) => {
   try {
@@ -2097,6 +2153,154 @@ app.post('/api/mentors/book', requireAuth(), mentorBookLimiter, async (req, res)
     res.json({ success: true, booking })
   } catch (err) {
     console.error('Mentor booking error:', err.message)
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
+  }
+})
+
+// Best-effort lookup of a mentor's account email via their linked user_id.
+// Requires the service-role admin client; returns null if unavailable.
+async function getMentorAccountEmail(userId) {
+  if (!userId || !supabaseAdmin) return null
+  try {
+    const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId)
+    if (error) return null
+    return data?.user?.email || null
+  } catch {
+    return null
+  }
+}
+
+// ── POST /api/mentors/ask — "Ask Mentor" async question (replaces Chat Now) ──
+// Stores the question, then notifies the admin and the assigned mentor.
+const mentorAskLimiter = createRateLimiter(isDev ? 50 : 10, 3600000, 'You can only send a few questions per hour. Please try again later.')
+app.post('/api/mentors/ask', requireAuth(), mentorAskLimiter, async (req, res) => {
+  const user = req.authUser
+  const { mentorId, contactName, contactEmail, subject, category, question } = req.body
+
+  if (!mentorId || !contactName || !contactEmail || !subject || !category || !question) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'Please fill in all required fields.' })
+  }
+
+  // Demo/dev accounts use fake UUIDs with no auth.users row — simulate success.
+  const askToken = (req.headers.authorization || '').split(' ')[1]
+  if (askToken === 'demo-student-token' || askToken === 'demo-admin-token' || askToken === 'demo-mentor-token') {
+    console.warn(`Mentor question simulated for demo user ${user.email} — demo accounts are not persisted`)
+    return res.json({ success: true, simulated: true })
+  }
+
+  try {
+    const client = getSupabaseClient(req.headers.authorization)
+
+    const { data: mentorRow, error: mentorErr } = await client
+      .from('mentors')
+      .select('id, name, user_id')
+      .eq('id', mentorId)
+      .maybeSingle()
+    if (mentorErr || !mentorRow) {
+      return res.status(404).json({ error: 'NOT_FOUND', message: 'Mentor not found.' })
+    }
+
+    const { data: message, error: insertErr } = await client
+      .from('mentor_messages')
+      .insert({
+        student_id: user.id,
+        mentor_id: mentorId,
+        contact_name: contactName,
+        contact_email: contactEmail,
+        subject,
+        category,
+        question,
+        status: 'pending',
+      })
+      .select()
+      .single()
+
+    if (insertErr) throw insertErr
+
+    const mentorName = mentorRow.name || 'the mentor'
+
+    // Notify the mentor (best-effort).
+    const mentorEmail = await getMentorAccountEmail(mentorRow.user_id)
+    if (mentorEmail) {
+      sendEmail(
+        mentorEmail,
+        `New Student Question: ${subject}`,
+        `<p>Hi ${mentorName},</p>
+         <p>A student has sent you a question on Aage Kya?.</p>
+         <ul>
+           <li><strong>From:</strong> ${contactName} (${contactEmail})</li>
+           <li><strong>Category:</strong> ${category}</li>
+           <li><strong>Subject:</strong> ${subject}</li>
+         </ul>
+         <p><strong>Question:</strong> ${question}</p>
+         <p>Sign in to your Mentor Dashboard → Messages to reply.</p>
+         <p>— Team Aage Kya?</p>`
+      ).catch(() => {})
+    }
+
+    // Notify the admin (best-effort).
+    const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL
+    if (adminEmail) {
+      sendEmail(
+        adminEmail,
+        'New Ask Mentor Question',
+        `<p>A student asked a mentor a question.</p>
+         <ul>
+           <li><strong>Student:</strong> ${contactName} (${contactEmail})</li>
+           <li><strong>Mentor:</strong> ${mentorName}</li>
+           <li><strong>Category:</strong> ${category}</li>
+           <li><strong>Subject:</strong> ${subject}</li>
+         </ul>
+         <p><strong>Question:</strong> ${question}</p>`
+      ).catch(() => {})
+    }
+
+    res.json({ success: true, message })
+  } catch (err) {
+    console.error('Mentor ask error:', err.message)
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
+  }
+})
+
+// ── PATCH /api/mentor/messages/:id/reply — mentor answers a question ─────────
+app.patch('/api/mentor/messages/:id/reply', requireRole('mentor'), async (req, res) => {
+  const { id } = req.params
+  const reply = (req.body?.reply || '').trim()
+  const user = req.authUser
+  if (!reply) return res.status(400).json({ error: 'BAD_REQUEST', message: 'Reply cannot be empty.' })
+
+  try {
+    // Verify the mentor owns the mentor profile the message is assigned to.
+    const { data: mentorRow } = await supabase.from('mentors').select('id, name').eq('user_id', user.id).maybeSingle()
+    if (!mentorRow) return res.status(403).json({ error: 'FORBIDDEN', message: 'No mentor profile found.' })
+
+    const client = getSupabaseClient(req.headers.authorization)
+    const { data: message, error } = await client
+      .from('mentor_messages')
+      .update({ reply, status: 'answered', replied_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('mentor_id', mentorRow.id)
+      .select()
+      .single()
+    if (error) throw error
+
+    // Notify the student their question was answered (best-effort).
+    if (message?.contact_email) {
+      sendEmail(
+        message.contact_email,
+        `Your Mentor Replied: ${message.subject || 'Your question'}`,
+        `<p>Hi ${message.contact_name || 'there'},</p>
+         <p><strong>${mentorRow.name}</strong> has replied to your question on Aage Kya?.</p>
+         <p><strong>Your question:</strong> ${message.question}</p>
+         <p><strong>Reply:</strong> ${reply}</p>
+         <p>Sign in and open "My Mentor Requests" to see the full conversation.</p>
+         <p>— Team Aage Kya?</p>`
+      ).catch(() => {})
+    }
+
+    res.json({ success: true, message })
+  } catch (err) {
+    console.error('Mentor reply error:', err.message)
     res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
   }
 })

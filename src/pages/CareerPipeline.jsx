@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Link, useSearchParams } from 'react-router-dom'
 import YouTubePanel from '../components/YouTubePanel'
 import { COURSES_DATA } from '../data/coursesData'
-import { postGenerateCareerPath } from '../api'
+import { postGenerateCareerPath, postGenerateCourse } from '../api'
 
 const CAREER_PATHS = [
   {
@@ -138,7 +138,15 @@ function StageNode({ stage, isActive, isCompleted, onClick, index, total }) {
   )
 }
 
-function StageDetail({ stage, pathId }) {
+function StageDetail({ stage, pathId, pathTitle }) {
+  // Build video guides that are always relevant to THIS career path and THIS
+  // stage via targeted YouTube searches (guarantees working, on-topic links).
+  const name = pathTitle || pathId
+  const roadmapVideos = [
+    { query: `how to become ${name} in India step by step`, title: `How to Become a ${name}`, channel: 'YouTube Search' },
+    { query: `${name} ${stage.label} ${stage.desc} guide India`, title: `${stage.label}: ${name} Guide`, channel: 'YouTube Search' },
+    { query: `${name} career roadmap salary and skills India`, title: `${name} Career Roadmap & Skills`, channel: 'YouTube Search' },
+  ]
   return (
     <motion.div
       key={stage.id}
@@ -222,8 +230,8 @@ function StageDetail({ stage, pathId }) {
         </div>
       </div>
 
-      {/* YouTubePanel for career roadmap video guidance */}
-      <YouTubePanel topic={[`${pathId}_${stage.id}`, pathId]} stageId={stage.id} title={`Curated Video Guide for ${stage.label}`} />
+      {/* YouTubePanel for career roadmap video guidance (path + stage specific) */}
+      <YouTubePanel videos={roadmapVideos} title={`Video Guides for ${name} — ${stage.label}`} />
     </motion.div>
   )
 }
@@ -241,7 +249,12 @@ function CourseCard({ course }) {
             {course.icon}
           </div>
           <div className="text-left">
-            <span className="text-[10px] uppercase font-bold tracking-widest text-saffron bg-saffron/10 px-2.5 py-1 rounded-full">{course.category}</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] uppercase font-bold tracking-widest text-saffron bg-saffron/10 px-2.5 py-1 rounded-full">{course.category}</span>
+              {course._generated && (
+                <span className="text-[10px] uppercase font-bold tracking-widest text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">✨ AI Generated</span>
+              )}
+            </div>
             <h3 className="font-display font-bold text-white text-lg mt-2">{course.title}</h3>
             <div className="flex flex-wrap gap-4 text-xs text-gray-400 mt-1">
               <div>⏱️ <span className="font-medium text-gray-300">{course.duration}</span></div>
@@ -340,6 +353,28 @@ export default function CareerPipeline() {
   // Catalog state
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('ALL')
+  // AI-generated courses (prepended to the catalog)
+  const [generatedCourses, setGeneratedCourses] = useState([])
+  const [courseGenLoading, setCourseGenLoading] = useState(false)
+  const [courseGenError, setCourseGenError] = useState(null)
+
+  const handleGenerateCourse = async () => {
+    const term = searchQuery.trim()
+    if (!term || courseGenLoading) return
+    setCourseGenLoading(true)
+    setCourseGenError(null)
+    try {
+      const res = await postGenerateCourse(term)
+      if (!res.ok) throw new Error('Failed to generate course information')
+      const course = await res.json()
+      setGeneratedCourses((prev) => [{ ...course, _generated: true }, ...prev])
+      setSearchQuery('')
+    } catch (err) {
+      setCourseGenError(err.message || 'Something went wrong. Please try again.')
+    } finally {
+      setCourseGenLoading(false)
+    }
+  }
 
   const path = careerPathsList.find(p => p.id === selectedPath)
 
@@ -392,9 +427,9 @@ export default function CareerPipeline() {
     }
   }
 
-  // Filter courses
+  // Filter courses (AI-generated ones first, then the built-in catalog)
   const filteredCourses = useMemo(() => {
-    return COURSES_DATA.filter(course => {
+    return [...generatedCourses, ...COURSES_DATA].filter(course => {
       const matchesSearch = 
         course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         course.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -417,7 +452,7 @@ export default function CareerPipeline() {
 
       return matchesSearch && matchesCategory
     })
-  }, [searchQuery, selectedCategory, classParam])
+  }, [searchQuery, selectedCategory, classParam, generatedCourses])
 
   // Get unique categories for filters
   const categories = useMemo(() => {
@@ -637,7 +672,7 @@ export default function CareerPipeline() {
 
                   {/* Stage Detail */}
                   <AnimatePresence mode="wait">
-                    <StageDetail key={path.stages[activeStageIdx].id} stage={path.stages[activeStageIdx]} pathId={path.id} />
+                    <StageDetail key={path.stages[activeStageIdx].id} stage={path.stages[activeStageIdx]} pathId={path.id} pathTitle={path.title} />
                   </AnimatePresence>
                 </motion.div>
               )}
@@ -658,16 +693,35 @@ export default function CareerPipeline() {
           <div className="space-y-8">
             {/* Search & Filters */}
             <div className="glass-card p-6 border-white/10 space-y-4">
-              <div className="relative">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by course title, subjects, or skills (e.g. Coding, Law, B.Tech)..."
-                  className="w-full bg-[#111827]/80 border border-white/10 hover:border-white/20 focus:border-saffron/60 rounded-xl px-12 py-3.5 text-white placeholder-gray-500 text-sm transition-all outline-none focus:ring-2 focus:ring-saffron/30"
-                />
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-lg">🔍</span>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search or type any course (e.g. Coding, Law, B.Arch, Nursing)..."
+                    className="w-full bg-[#111827]/80 border border-white/10 hover:border-white/20 focus:border-saffron/60 rounded-xl px-12 py-3.5 text-white placeholder-gray-500 text-sm transition-all outline-none focus:ring-2 focus:ring-saffron/30"
+                  />
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-lg">🔍</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleGenerateCourse}
+                  disabled={!searchQuery.trim() || courseGenLoading}
+                  className="btn-primary text-sm px-5 py-3.5 flex items-center justify-center gap-1.5 whitespace-nowrap bg-gradient-to-r from-saffron to-amber-500 disabled:opacity-50"
+                  title="Generate a detailed guide for any course using AI"
+                >
+                  {courseGenLoading ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      <span>Generating...</span>
+                    </>
+                  ) : (
+                    <span>✨ Generate Course</span>
+                  )}
+                </button>
               </div>
+              {courseGenError && <p className="text-xs text-rose-400 font-medium">⚠️ {courseGenError}</p>}
 
               {/* Category pills */}
               <div className="flex flex-wrap gap-2 pt-2">
@@ -697,9 +751,17 @@ export default function CareerPipeline() {
                 <div className="glass-card-premium p-16 text-center">
                   <div className="text-5xl mb-4">🤷‍♂️</div>
                   <h3 className="font-display text-xl font-bold text-white mb-2">No Courses Found</h3>
-                  <p className="text-gray-400 max-w-sm mx-auto">
-                    We couldn't find any courses matching your search query. Try checking your spelling or clearing filters.
+                  <p className="text-gray-400 max-w-sm mx-auto mb-5">
+                    We couldn't find a course matching "{searchQuery}". Generate a detailed guide for it with AI instead.
                   </p>
+                  <button
+                    type="button"
+                    onClick={handleGenerateCourse}
+                    disabled={!searchQuery.trim() || courseGenLoading}
+                    className="btn-primary text-sm px-6 py-3 inline-flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {courseGenLoading ? 'Generating...' : `✨ Generate "${searchQuery || 'course'}" Guide`}
+                  </button>
                 </div>
               )}
             </div>

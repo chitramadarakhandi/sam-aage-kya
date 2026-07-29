@@ -205,51 +205,52 @@ const CURATED_VIDEOS = {
     { id: 'jNQXAC9IVRw', title: 'KCET vs COMEDK - Which is Better?', channel: 'Karnataka Exams' },
   ],
   study_abroad: [
-    { id: 'Z_oBJn_XYJQ', title: 'How to Study in USA After 12th', channel: 'Yocket' },
-    { id: 'VYOjWnS4cMY', title: 'Scholarships for Indian Students Abroad', channel: 'MBAUniverse' },
-    { id: 'dpTFQSL9B9M', title: 'Germany Free Education for Indians', channel: 'Study Abroad Life' },
+    { query: 'study abroad after 12th for Indian students complete guide', title: 'Study Abroad After 12th: Complete Guide', channel: 'YouTube Search' },
+    { query: 'scholarships for Indian students to study abroad', title: 'Scholarships for Indian Students Abroad', channel: 'YouTube Search' },
+    { query: 'student visa process for Indian students study abroad', title: 'Student Visa Process Explained', channel: 'YouTube Search' },
   ],
-  // Per-country study abroad video sets. Where a country has no genuinely
-  // country-specific curated video elsewhere in this file, we fall back to
-  // the honest generic `career_guidance` set below rather than inventing or
-  // mislabeling a video as country-specific.
+  // Per-country study abroad video sets. These use targeted YouTube searches
+  // (not hardcoded video IDs) so every card is genuinely relevant to that
+  // country's education and always resolves to a live, working video.
   study_abroad_usa: [
-    { id: 'Z_oBJn_XYJQ', title: 'How to Study in USA After 12th', channel: 'Yocket' },
-    { id: 'VYOjWnS4cMY', title: 'Scholarships for Indian Students Abroad', channel: 'MBAUniverse' },
+    { query: 'study in USA for Indian students after 12th complete guide', title: 'Study in the USA: Complete Guide for Indian Students', channel: 'YouTube Search' },
+    { query: 'USA F1 student visa process for Indian students', title: 'USA F-1 Student Visa Process Explained', channel: 'YouTube Search' },
+    { query: 'scholarships to study in USA for Indian students', title: 'Scholarships to Study in the USA', channel: 'YouTube Search' },
   ],
   study_abroad_uk: [
-    { id: 'ua-CiDNNj30', title: 'How to Choose the Right Career - 2024', channel: 'TED-Ed' },
-    { id: 'aircAruvnKk', title: '10 High-Paying Careers in India 2024', channel: 'Josh Talks' },
-    { id: 'FXjif1BzVhX', title: 'Emerging Careers & Skills of the Future', channel: 'Josh Talks' },
+    { query: 'study in UK for Indian students masters complete guide', title: 'Study in the UK: Complete Guide for Indian Students', channel: 'YouTube Search' },
+    { query: 'UK student visa graduate route process Indian students', title: 'UK Student Visa & Graduate Route Explained', channel: 'YouTube Search' },
+    { query: 'Chevening and Commonwealth scholarships UK Indian students', title: 'Scholarships to Study in the UK', channel: 'YouTube Search' },
   ],
   study_abroad_canada: [
-    { id: 'ua-CiDNNj30', title: 'How to Choose the Right Career - 2024', channel: 'TED-Ed' },
-    { id: 'aircAruvnKk', title: '10 High-Paying Careers in India 2024', channel: 'Josh Talks' },
-    { id: 'FXjif1BzVhX', title: 'Emerging Careers & Skills of the Future', channel: 'Josh Talks' },
+    { query: 'study in Canada for Indian students after 12th complete guide', title: 'Study in Canada: Complete Guide for Indian Students', channel: 'YouTube Search' },
+    { query: 'Canada study permit SDS visa process Indian students', title: 'Canada Study Permit & SDS Visa Process', channel: 'YouTube Search' },
+    { query: 'Canada PGWP PR pathway Express Entry for students', title: 'Canada PGWP & PR Pathway Explained', channel: 'YouTube Search' },
   ],
   study_abroad_australia: [
-    { id: 'ua-CiDNNj30', title: 'How to Choose the Right Career - 2024', channel: 'TED-Ed' },
-    { id: 'aircAruvnKk', title: '10 High-Paying Careers in India 2024', channel: 'Josh Talks' },
-    { id: 'FXjif1BzVhX', title: 'Emerging Careers & Skills of the Future', channel: 'Josh Talks' },
+    { query: 'study in Australia for Indian students complete guide', title: 'Study in Australia: Complete Guide for Indian Students', channel: 'YouTube Search' },
+    { query: 'Australia subclass 500 student visa process Indian students', title: 'Australia Student Visa (Subclass 500) Process', channel: 'YouTube Search' },
+    { query: 'Australia post study work visa 485 PR pathway', title: 'Australia Post-Study Work Visa & PR', channel: 'YouTube Search' },
   ],
   study_abroad_germany: [
-    { id: 'dpTFQSL9B9M', title: 'Germany Free Education for Indians', channel: 'Study Abroad Life' },
-    { id: 'VYOjWnS4cMY', title: 'Scholarships for Indian Students Abroad', channel: 'MBAUniverse' },
+    { query: 'study in Germany for Indian students free public universities', title: 'Study in Germany: Complete Guide for Indian Students', channel: 'YouTube Search' },
+    { query: 'Germany student visa blocked account APS process Indian students', title: 'Germany Student Visa & Blocked Account', channel: 'YouTube Search' },
+    { query: 'DAAD scholarships Germany for Indian students', title: 'DAAD & Scholarships to Study in Germany', channel: 'YouTube Search' },
   ],
   study_abroad_ireland: [
-    { id: 'ua-CiDNNj30', title: 'How to Choose the Right Career - 2024', channel: 'TED-Ed' },
-    { id: 'aircAruvnKk', title: '10 High-Paying Careers in India 2024', channel: 'Josh Talks' },
-    { id: 'FXjif1BzVhX', title: 'Emerging Careers & Skills of the Future', channel: 'Josh Talks' },
+    { query: 'study in Ireland for Indian students complete guide', title: 'Study in Ireland: Complete Guide for Indian Students', channel: 'YouTube Search' },
+    { query: 'Ireland student visa stamp 2 process Indian students', title: 'Ireland Student Visa Process Explained', channel: 'YouTube Search' },
+    { query: 'Ireland stay back visa work permit after study', title: 'Ireland Stay Back Visa & Work Options', channel: 'YouTube Search' },
   ],
   study_abroad_singapore: [
-    { id: 'ua-CiDNNj30', title: 'How to Choose the Right Career - 2024', channel: 'TED-Ed' },
-    { id: 'aircAruvnKk', title: '10 High-Paying Careers in India 2024', channel: 'Josh Talks' },
-    { id: 'FXjif1BzVhX', title: 'Emerging Careers & Skills of the Future', channel: 'Josh Talks' },
+    { query: 'study in Singapore for Indian students complete guide', title: 'Study in Singapore: Complete Guide for Indian Students', channel: 'YouTube Search' },
+    { query: 'Singapore student pass visa process Indian students', title: "Singapore Student Pass Process Explained", channel: 'YouTube Search' },
+    { query: 'Singapore tuition grant scholarships for international students', title: 'Scholarships & Tuition Grant in Singapore', channel: 'YouTube Search' },
   ],
   study_abroad_nz: [
-    { id: 'ua-CiDNNj30', title: 'How to Choose the Right Career - 2024', channel: 'TED-Ed' },
-    { id: 'aircAruvnKk', title: '10 High-Paying Careers in India 2024', channel: 'Josh Talks' },
-    { id: 'FXjif1BzVhX', title: 'Emerging Careers & Skills of the Future', channel: 'Josh Talks' },
+    { query: 'study in New Zealand for Indian students complete guide', title: 'Study in New Zealand: Complete Guide for Indian Students', channel: 'YouTube Search' },
+    { query: 'New Zealand student visa process Indian students', title: 'New Zealand Student Visa Process', channel: 'YouTube Search' },
+    { query: 'New Zealand post study work visa PR pathway', title: 'New Zealand Post-Study Work Visa & PR', channel: 'YouTube Search' },
   ],
   college_tour: [
     { id: 'ysEN5RaKOlA', title: 'RVCE Campus Tour - Bangalore', channel: 'College Tours India' },
@@ -324,7 +325,44 @@ function VideoCard({ video, index }) {
   // for the exact title + channel, which reliably lands on a matching video.
   const [broken, setBroken] = useState(false)
 
-  const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(`${video.title} ${video.channel}`)}`
+  // Search-based cards (no fixed video id) always open a targeted YouTube
+  // search — guarantees a relevant, working result.
+  const isSearchCard = !!video.query
+  const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
+    video.query || `${video.title} ${video.channel}`
+  )}`
+
+  if (isSearchCard) {
+    return (
+      <motion.a
+        href={searchUrl}
+        target="_blank"
+        rel="noreferrer"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: index * 0.1 }}
+        className="group relative rounded-2xl overflow-hidden border border-white/10 hover:border-saffron/30 transition-all duration-300 bg-white/[0.03] block"
+      >
+        <div className="relative w-full bg-black/60" style={{ paddingBottom: '56.25%' }}>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+            <div className="w-14 h-14 rounded-full bg-red-600 flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform duration-200">
+              <svg className="w-6 h-6 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </div>
+            <span className="text-xs font-semibold text-white">Watch guides on YouTube →</span>
+          </div>
+        </div>
+        <div className="p-4">
+          <p className="text-white text-sm font-semibold leading-snug line-clamp-2">{video.title}</p>
+          <p className="text-gray-500 text-xs mt-1.5 flex items-center gap-1">
+            <svg className="w-3 h-3 text-red-500" fill="currentColor" viewBox="0 0 24 24"><path d="M23.495 6.205a3.007 3.007 0 00-2.088-2.088c-1.87-.501-9.396-.501-9.396-.501s-7.507-.01-9.396.501A3.007 3.007 0 00.527 6.205a31.247 31.247 0 00-.522 5.805 31.247 31.247 0 00.522 5.783 3.007 3.007 0 002.088 2.088c1.868.502 9.396.502 9.396.502s7.506 0 9.396-.502a3.007 3.007 0 002.088-2.088 31.247 31.247 0 00.5-5.783 31.247 31.247 0 00-.5-5.805zM9.609 15.601V8.408l6.264 3.602z"/></svg>
+            {video.channel}
+          </p>
+        </div>
+      </motion.a>
+    )
+  }
 
   return (
     <motion.div
@@ -398,9 +436,14 @@ function VideoCard({ video, index }) {
   )
 }
 
-export default function YouTubePanel({ topic, stageId, title = 'Related Videos', className = '' }) {
+export default function YouTubePanel({ topic, stageId, title = 'Related Videos', className = '', videos: videosOverride }) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const videos = getVideosForTopic(topic, stageId)
+  // If an explicit `videos` list is provided (e.g. dynamically-built search
+  // cards for a specific roadmap stage), use it. Otherwise fall back to the
+  // curated topic lookup.
+  const videos = (Array.isArray(videosOverride) && videosOverride.length > 0)
+    ? videosOverride
+    : getVideosForTopic(topic, stageId)
 
   return (
     <div className={`glass-card rounded-2xl border border-white/10 overflow-hidden ${className}`}>
@@ -435,7 +478,7 @@ export default function YouTubePanel({ topic, stageId, title = 'Related Videos',
           >
             <div className="px-5 pb-5 grid sm:grid-cols-2 md:grid-cols-3 gap-4 border-t border-white/5 pt-4">
               {videos.map((video, i) => (
-                <VideoCard key={video.id} video={video} index={i} />
+                <VideoCard key={video.id || video.query || i} video={video} index={i} />
               ))}
             </div>
           </motion.div>

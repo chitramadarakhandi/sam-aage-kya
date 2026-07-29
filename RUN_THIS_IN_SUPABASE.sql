@@ -1,37 +1,41 @@
 -- ============================================================
--- Aage Kya? — Mentor application fields migration
--- Run this ENTIRE file once in the Supabase SQL Editor.
--- Safe to re-run (uses IF NOT EXISTS / IF EXISTS guards).
+-- Aage Kya? — ALL PENDING MIGRATIONS (run this ONE file)
 --
--- Adds the columns the "Become a Mentor" form (MentorApplication.jsx)
--- and the /api/mentors/apply endpoint send. Without these, inserts fail
--- with "Could not find the '<column>' column of 'mentor_applications'".
+-- HOW TO RUN:
+--   1. Open your Supabase project dashboard
+--   2. Left sidebar -> SQL Editor -> New query
+--   3. Paste this ENTIRE file
+--   4. Click RUN (bottom right). You should see "Success. No rows returned".
+--
+-- Everything here is idempotent (safe to run multiple times).
 -- ============================================================
 
+-- ─── A. Mentor application fields (fixes "experience_years" error) ───────────
 ALTER TABLE public.mentor_applications ADD COLUMN IF NOT EXISTS profession       TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.mentor_applications ADD COLUMN IF NOT EXISTS stream_category  TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.mentor_applications ADD COLUMN IF NOT EXISTS experience_years INT  NOT NULL DEFAULT 0;
 ALTER TABLE public.mentor_applications ADD COLUMN IF NOT EXISTS linkedin         TEXT NOT NULL DEFAULT '';
--- Reason shown to the applicant when an admin rejects their application.
 ALTER TABLE public.mentor_applications ADD COLUMN IF NOT EXISTS rejection_reason TEXT NOT NULL DEFAULT '';
-
--- The newer application form sends stream_category / profession instead of the
--- original college / degree / stream_transition, so relax those NOT NULLs.
 ALTER TABLE public.mentor_applications ALTER COLUMN stream_transition DROP NOT NULL;
 ALTER TABLE public.mentor_applications ALTER COLUMN stream_transition SET DEFAULT '';
 ALTER TABLE public.mentor_applications ALTER COLUMN college DROP NOT NULL;
 ALTER TABLE public.mentor_applications ALTER COLUMN college SET DEFAULT '';
 ALTER TABLE public.mentor_applications ALTER COLUMN degree DROP NOT NULL;
 ALTER TABLE public.mentor_applications ALTER COLUMN degree SET DEFAULT '';
-
--- mentors table needs the LinkedIn URL carried over on approval.
 ALTER TABLE public.mentors ADD COLUMN IF NOT EXISTS linkedin TEXT NOT NULL DEFAULT '';
 
--- ============================================================
--- Ask Mentor messaging table (fixes: "Could not find the table
--- 'public.mentor_messages' in the schema cache")
--- ============================================================
+-- ─── B. Cal.com removal + booking fields on mentor_sessions ──────────────────
+ALTER TABLE public.mentors             DROP COLUMN IF EXISTS cal_link;
+ALTER TABLE public.mentor_applications DROP COLUMN IF EXISTS cal_link;
+ALTER TABLE public.mentor_sessions ADD COLUMN IF NOT EXISTS contact_name        TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.mentor_sessions ADD COLUMN IF NOT EXISTS contact_email       TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.mentor_sessions ADD COLUMN IF NOT EXISTS contact_phone       TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.mentor_sessions ADD COLUMN IF NOT EXISTS class_level         TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.mentor_sessions ADD COLUMN IF NOT EXISTS area_of_interest    TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.mentor_sessions ADD COLUMN IF NOT EXISTS preferred_language  TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.mentor_sessions ADD COLUMN IF NOT EXISTS guidance_query      TEXT NOT NULL DEFAULT '';
 
+-- ─── C. Ask Mentor messaging table (fixes "mentor_messages" error) ───────────
 CREATE TABLE IF NOT EXISTS public.mentor_messages (
   id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   student_id    UUID        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -72,5 +76,5 @@ CREATE POLICY "mentor_messages_mentor_update"
   ON public.mentor_messages FOR UPDATE
   USING (auth.uid() IN (SELECT user_id FROM public.mentors WHERE id = mentor_id));
 
--- Refresh PostgREST's schema cache so the new table is visible immediately.
+-- ─── D. Force PostgREST to refresh its schema cache immediately ──────────────
 NOTIFY pgrst, 'reload schema';

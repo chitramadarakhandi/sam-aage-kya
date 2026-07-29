@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import MentorChat from '../components/MentorChat'
+import AskMentorModal from '../components/AskMentorModal'
 import MentorBookingModal from '../components/MentorBookingModal'
 import AuthModal from '../components/AuthModal'
 import { useAuth } from '../context/AuthContext'
@@ -196,7 +196,7 @@ function MentorCard({ mentor, index, isBestMatch, onChat, onBook }) {
             onClick={() => onChat(mentor)}
             className="btn-primary text-xs py-2.5 flex items-center justify-center gap-1.5"
           >
-            💬 Chat Now
+            💬 Ask Mentor
           </button>
         </div>
 
@@ -449,12 +449,11 @@ export default function Mentors() {
         </div>
       </div>
 
-      {/* ── Chat overlay ── */}
+      {/* ── Ask Mentor modal ── */}
       {chatTarget && (
-        <MentorChat
+        <AskMentorModal
           mentor={chatTarget}
           onClose={() => setChatTarget(null)}
-          onSignInRequest={() => { setChatTarget(null); setIsAuthOpen(true) }}
         />
       )}
 

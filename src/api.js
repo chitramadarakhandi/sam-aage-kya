@@ -63,6 +63,22 @@ export async function postMentorBook(payload, authToken) {
   })
 }
 
+export async function postMentorAsk(payload, authToken) {
+  return apiFetch('/api/mentors/ask', {
+    method: 'POST',
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function patchMentorReply(id, reply, authToken) {
+  return apiFetch(`/api/mentor/messages/${id}/reply`, {
+    method: 'PATCH',
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    body: JSON.stringify({ reply }),
+  })
+}
+
 export async function postSync(formData, result, authToken) {
   return apiFetch('/api/sync', {
     method: 'POST',
@@ -138,6 +154,13 @@ export async function postGenerateCareerPath(profession, formData) {
   return apiFetch('/api/generate-career-path', {
     method: 'POST',
     body: JSON.stringify({ profession, formData }),
+  })
+}
+
+export async function postGenerateCourse(courseName) {
+  return apiFetch('/api/generate-course', {
+    method: 'POST',
+    body: JSON.stringify({ courseName }),
   })
 }
 

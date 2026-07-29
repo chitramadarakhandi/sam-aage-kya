@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { patchMentorReply } from '../api'
 
 function formatDateTime(ts) {
   if (!ts) return 'Not specified'
@@ -95,14 +96,19 @@ function BookingCard({ booking, onAccept, onReject, onComplete, actionLoading })
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function MentorDashboard() {
-  const { user, profile, loading: authLoading } = useAuth()
+  const { user, profile, session, loading: authLoading } = useAuth()
   const navigate = useNavigate()
 
   const [mentorProfile, setMentorProfile] = useState(null)
   const [bookings, setBookings] = useState([])
+  const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
-  const [activeTab, setActiveTab] = useState('upcoming') // 'upcoming' | 'accepted' | 'completed' | 'settings'
+  const [activeTab, setActiveTab] = useState('upcoming') // 'upcoming' | 'accepted' | 'completed' | 'messages' | 'settings'
+
+  // Per-message reply drafts + in-flight state
+  const [replyDrafts, setReplyDrafts] = useState({})
+  const [replyingId, setReplyingId] = useState(null)
 
   // Profile settings form
   const [settingsForm, setSettingsForm] = useState({ story: '', linkedin: '', available: true })
@@ -134,6 +140,13 @@ export default function MentorDashboard() {
         .eq('mentor_id', mp.id)
         .order('created_at', { ascending: false })
       setBookings(sess || [])
+
+      const { data: msgs } = await supabase
+        .from('mentor_messages')
+        .select('*')
+        .eq('mentor_id', mp.id)
+        .order('created_at', { ascending: false })
+      setMessages(msgs || [])
     }
     setLoading(false)
   }, [user])
@@ -157,6 +170,29 @@ export default function MentorDashboard() {
   const handleAccept = (id) => updateBookingStatus(id, 'accepted')
   const handleReject = (id) => updateBookingStatus(id, 'rejected')
   const handleComplete = (id) => updateBookingStatus(id, 'completed')
+
+  // ── Reply to a student question ──────────────────────────────
+  const handleReply = async (messageId) => {
+    const reply = (replyDrafts[messageId] || '').trim()
+    if (!reply) return
+    setReplyingId(messageId)
+    try {
+      const res = await patchMentorReply(messageId, reply, session?.access_token)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || 'Failed to send reply.')
+      }
+      const { message } = await res.json().catch(() => ({}))
+      setMessages((prev) => prev.map((m) => (m.id === messageId
+        ? { ...m, reply, status: 'answered', replied_at: message?.replied_at || new Date().toISOString() }
+        : m)))
+      setReplyDrafts((prev) => ({ ...prev, [messageId]: '' }))
+    } catch (err) {
+      alert(err.message || 'Failed to send reply.')
+    } finally {
+      setReplyingId(null)
+    }
+  }
 
   // ── Profile settings ──────────────────────────────────────────
   const handleSaveSettings = async (e) => {
@@ -202,10 +238,13 @@ export default function MentorDashboard() {
   const accepted = bookings.filter((b) => b.status === 'accepted')
   const completed = bookings.filter((b) => b.status === 'completed')
 
+  const pendingMessages = messages.filter((m) => m.status !== 'answered')
+
   const TABS = [
     { id: 'upcoming', label: `📅 Upcoming (${upcoming.length})` },
     { id: 'accepted', label: `✅ Accepted (${accepted.length})` },
     { id: 'completed', label: `🏁 Completed (${completed.length})` },
+    { id: 'messages', label: `💬 Messages (${pendingMessages.length})` },
     { id: 'settings', label: '⚙️ Profile Settings' },
   ]
 
@@ -299,6 +338,66 @@ export default function MentorDashboard() {
                   <BookingCard key={b.id} booking={b} onAccept={handleAccept} onReject={handleReject} onComplete={handleComplete} actionLoading={actionLoading} />
                 ))}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Messages (Ask Mentor questions) ── */}
+        {activeTab === 'messages' && (
+          <div className="space-y-4">
+            {messages.length === 0 ? (
+              <div className="glass-card border-white/5 p-12 text-center text-gray-400 text-sm">
+                💬 No student questions yet. They'll show up here when a student asks you something.
+              </div>
+            ) : (
+              messages.map((m) => (
+                <div key={m.id} className="glass-card border-white/5 p-5 sm:p-6 space-y-3">
+                  <div className="flex justify-between items-start gap-3">
+                    <div>
+                      <h4 className="font-display text-sm font-bold text-white">{m.subject || 'Question'}</h4>
+                      <p className="text-gray-400 text-xs mt-0.5">
+                        {m.contact_name} · {m.contact_email}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                        m.status === 'answered' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                      }`}>{m.status === 'answered' ? 'Answered' : 'Pending'}</span>
+                      {m.category && <span className="text-[10px] text-gray-500">{m.category}</span>}
+                    </div>
+                  </div>
+
+                  <div className="text-sm text-gray-200 bg-white/[0.03] p-3.5 rounded-xl border border-white/5">
+                    {m.question}
+                  </div>
+
+                  {m.status === 'answered' ? (
+                    <div className="text-sm text-gray-200 bg-emerald-500/5 p-3.5 rounded-xl border border-emerald-500/15">
+                      <span className="text-emerald-400 text-xs font-semibold block mb-1">Your reply:</span>
+                      {m.reply}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <textarea
+                        rows={3}
+                        value={replyDrafts[m.id] || ''}
+                        onChange={(e) => setReplyDrafts((prev) => ({ ...prev, [m.id]: e.target.value }))}
+                        placeholder="Write your reply to the student..."
+                        className="w-full bg-white/[0.05] border border-white/10 hover:border-white/20 focus:border-saffron/60 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm transition-all outline-none focus:ring-2 focus:ring-saffron/20 resize-none"
+                      />
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => handleReply(m.id)}
+                          disabled={!(replyDrafts[m.id] || '').trim() || replyingId === m.id}
+                          className="btn-primary py-2 px-6 text-xs disabled:opacity-50"
+                        >
+                          {replyingId === m.id ? 'Sending...' : 'Send Reply'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
             )}
           </div>
         )}

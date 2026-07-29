@@ -25,6 +25,7 @@ import CareerPipeline from './pages/CareerPipeline'
 import Scholarships from './pages/Scholarships'
 import CollegeOverview from './pages/CollegeOverview'
 import MentorApplication from './pages/MentorApplication'
+import MyMentorRequests from './pages/MyMentorRequests'
 import Explore from './pages/Explore'
 import OnlineEducation from './pages/OnlineEducation'
 
@@ -86,6 +87,7 @@ function AnimatedRoutes() {
         <Route path="/result/print"      element={<ProtectedRoute><PrintReport /></ProtectedRoute>} />
         <Route path="/:classLevel/result/print" element={<ProtectedRoute><PrintReport /></ProtectedRoute>} />
         <Route path="/scenarios"         element={<ProtectedRoute><Scenarios /></ProtectedRoute>} />
+        <Route path="/my-mentor-requests" element={<ProtectedRoute><MyMentorRequests /></ProtectedRoute>} />
         
         {/* Protected Mentor Routes */}
         <Route path="/mentor-dashboard"  element={<ProtectedRoute allowedRoles={['mentor']}><MentorDashboard /></ProtectedRoute>} />
