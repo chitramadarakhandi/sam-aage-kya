@@ -16,6 +16,7 @@ import {
 } from './data/indiaPathways.js'
 
 import path from 'path'
+import fs from 'fs'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -3210,6 +3211,20 @@ app.delete('/api/admin/course-feedback/:id', requireRole('admin'), async (req, r
     res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
   }
 })
+
+// Serve Vite frontend build (dist) if present, or fallback root API response
+const distPath = path.join(__dirname, '../dist')
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath))
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next()
+    res.sendFile(path.join(distPath, 'index.html'))
+  })
+} else {
+  app.get('/', (req, res) => {
+    res.json({ status: 'ok', message: 'Aage Kya API Server is running' })
+  })
+}
 
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`)
