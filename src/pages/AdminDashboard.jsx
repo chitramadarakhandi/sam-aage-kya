@@ -2,13 +2,15 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { Navigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
+import { getAdminMentorMessages } from '../api'
 
 export default function AdminDashboard() {
   const { session, profile } = useAuth()
-  const [activeTab, setActiveTab] = useState('analytics') // 'analytics' | 'mentors' | 'users'
+  const [activeTab, setActiveTab] = useState('analytics') // 'analytics' | 'mentors' | 'queries' | 'users'
   const [analytics, setAnalytics] = useState(null)
   const [applications, setApplications] = useState([])
   const [bookings, setBookings] = useState([])
+  const [queries, setQueries] = useState([])
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
@@ -40,12 +42,16 @@ export default function AdminDashboard() {
       const bookingsRes = await fetch('/api/admin/mentor-bookings', { headers })
       const bookingsData = await bookingsRes.json()
 
+      const queriesRes = await getAdminMentorMessages(session?.access_token)
+      const queriesData = queriesRes.ok ? await queriesRes.json() : { messages: [] }
+
       // Fetch users from Supabase directly
       const { data: usersData } = await supabase.from('students').select('id, full_name, role, class_level, created_at, marks, stream, state').order('created_at', { ascending: false }).limit(100)
 
       setAnalytics(analyticsData)
       setApplications(appsData.applications || [])
       setBookings(bookingsData.bookings || [])
+      setQueries(queriesData.messages || [])
       setUsers(usersData || [])
     } catch (err) {
       console.error('Error fetching admin data:', err)
@@ -251,6 +257,7 @@ export default function AdminDashboard() {
           {[
             { id: 'analytics', label: '📊 Analytics' },
             { id: 'mentors', label: `🌟 Mentors (${pendingMentors.length} pending, ${pendingBookings.length} bookings)` },
+            { id: 'queries', label: `💬 Student Queries (${queries.length})` },
             { id: 'users', label: `👥 Users (${users.length})` },
           ].map(t => (
             <button
@@ -354,11 +361,14 @@ export default function AdminDashboard() {
                                 <td className="px-5 py-3 text-gray-400 text-xs">{formatBookingDate(b.session_date)}</td>
                                 <td className="px-5 py-3">
                                   <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                                    b.status === 'completed' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                                    : b.status === 'accepted' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
-                                    : b.status === 'rejected' ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                                    b.status === 'completed' || b.status === 'accepted' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                    : b.status === 'rescheduled' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                                    : b.status === 'declined' ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
                                     : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
                                   }`}>{b.status || 'pending'}</span>
+                                  {b.mentor_response && (
+                                    <div className="text-[10px] text-gray-500 mt-1 max-w-[180px] truncate" title={b.mentor_response}>{b.mentor_response}</div>
+                                  )}
                                 </td>
                               </tr>
                             ))}
@@ -449,6 +459,56 @@ export default function AdminDashboard() {
                   </div>
                 )}
                 </div>
+              </div>
+            )}
+
+            {/* ── Tab: Student Queries (monitoring — read-only for admin) ── */}
+            {activeTab === 'queries' && (
+              <div className="space-y-4">
+                <h3 className="font-display text-lg font-bold text-white mb-2">Student → Mentor Queries</h3>
+                {queries.length === 0 ? (
+                  <div className="glass-card border-white/5 p-12 text-center text-gray-400 text-sm">
+                    💬 No student queries yet.
+                  </div>
+                ) : (
+                  <div className="glass-card border-white/5 overflow-hidden rounded-2xl">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-white/5 text-xs text-gray-500 uppercase tracking-wider">
+                            <th className="text-left px-5 py-3">Student</th>
+                            <th className="text-left px-5 py-3">Class</th>
+                            <th className="text-left px-5 py-3">Mentor</th>
+                            <th className="text-left px-5 py-3">Subject</th>
+                            <th className="text-left px-5 py-3">Category</th>
+                            <th className="text-left px-5 py-3">Submitted</th>
+                            <th className="text-left px-5 py-3">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {queries.map((q) => (
+                            <tr key={q.id} className="hover:bg-white/[0.03] transition-colors align-top">
+                              <td className="px-5 py-3">
+                                <div className="text-white font-medium">{q.contact_name || '—'}</div>
+                                <div className="text-gray-500 text-xs">{q.contact_email}</div>
+                              </td>
+                              <td className="px-5 py-3 text-gray-400 text-xs">{q.class_level || '—'}</td>
+                              <td className="px-5 py-3 text-gray-300">{q.mentors?.name || '—'}</td>
+                              <td className="px-5 py-3 text-gray-300 text-xs max-w-[220px] truncate">{q.subject || '—'}</td>
+                              <td className="px-5 py-3 text-gray-400 text-xs">{q.category || '—'}</td>
+                              <td className="px-5 py-3 text-gray-500 text-xs">{formatBookingDate(q.created_at)}</td>
+                              <td className="px-5 py-3">
+                                <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                                  q.status === 'answered' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                                }`}>{q.status === 'answered' ? 'Replied' : 'Pending'}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

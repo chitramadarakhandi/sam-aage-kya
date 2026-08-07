@@ -323,6 +323,14 @@ async function getAuthUser(authHeader) {
       user_metadata: { user_type: 'admin' }
     }
   }
+  if (token === 'demo-mentor-token') {
+    return {
+      id: '00000000-0000-0000-0000-000000000003',
+      email: 'demo-mentor@aagekya.com',
+      role: 'mentor',
+      user_metadata: { user_type: 'mentor' }
+    }
+  }
 
   try {
     const { data: { user }, error } = await supabase.auth.getUser(token)
@@ -2176,7 +2184,7 @@ async function getMentorAccountEmail(userId) {
 const mentorAskLimiter = createRateLimiter(isDev ? 50 : 10, 3600000, 'You can only send a few questions per hour. Please try again later.')
 app.post('/api/mentors/ask', requireAuth(), mentorAskLimiter, async (req, res) => {
   const user = req.authUser
-  const { mentorId, contactName, contactEmail, subject, category, question } = req.body
+  const { mentorId, contactName, contactEmail, subject, category, question, classLevel } = req.body
 
   if (!mentorId || !contactName || !contactEmail || !subject || !category || !question) {
     return res.status(400).json({ error: 'BAD_REQUEST', message: 'Please fill in all required fields.' })
@@ -2201,7 +2209,7 @@ app.post('/api/mentors/ask', requireAuth(), mentorAskLimiter, async (req, res) =
       return res.status(404).json({ error: 'NOT_FOUND', message: 'Mentor not found.' })
     }
 
-    const { data: message, error: insertErr } = await client
+    let { data: message, error: insertErr } = await client
       .from('mentor_messages')
       .insert({
         student_id: user.id,
@@ -2211,10 +2219,31 @@ app.post('/api/mentors/ask', requireAuth(), mentorAskLimiter, async (req, res) =
         subject,
         category,
         question,
+        class_level: classLevel || '',
         status: 'pending',
       })
       .select()
       .single()
+
+    // Fall back if class_level hasn't been migrated yet.
+    if (insertErr && (insertErr.code === 'PGRST204' || insertErr.code === '42703' || /class_level/.test(insertErr.message || ''))) {
+      console.warn('[mentor ask] mentor_messages.class_level column missing — run supabase_mentor_dashboard_migration.sql. Inserting without it.')
+      const retry = await client
+        .from('mentor_messages')
+        .insert({
+          student_id: user.id,
+          mentor_id: mentorId,
+          contact_name: contactName,
+          contact_email: contactEmail,
+          subject,
+          category,
+          question,
+          status: 'pending',
+        })
+        .select()
+        .single()
+      message = retry.data; insertErr = retry.error
+    }
 
     if (insertErr) throw insertErr
 
@@ -2230,11 +2259,12 @@ app.post('/api/mentors/ask', requireAuth(), mentorAskLimiter, async (req, res) =
          <p>A student has sent you a question on Aage Kya?.</p>
          <ul>
            <li><strong>From:</strong> ${contactName} (${contactEmail})</li>
+           ${classLevel ? `<li><strong>Class:</strong> ${classLevel}</li>` : ''}
            <li><strong>Category:</strong> ${category}</li>
            <li><strong>Subject:</strong> ${subject}</li>
          </ul>
          <p><strong>Question:</strong> ${question}</p>
-         <p>Sign in to your Mentor Dashboard → Messages to reply.</p>
+         <p>Sign in to your Mentor Dashboard → Student Queries to reply.</p>
          <p>— Team Aage Kya?</p>`
       ).catch(() => {})
     }
@@ -2248,6 +2278,7 @@ app.post('/api/mentors/ask', requireAuth(), mentorAskLimiter, async (req, res) =
         `<p>A student asked a mentor a question.</p>
          <ul>
            <li><strong>Student:</strong> ${contactName} (${contactEmail})</li>
+           ${classLevel ? `<li><strong>Class:</strong> ${classLevel}</li>` : ''}
            <li><strong>Mentor:</strong> ${mentorName}</li>
            <li><strong>Category:</strong> ${category}</li>
            <li><strong>Subject:</strong> ${subject}</li>
@@ -2269,6 +2300,12 @@ app.patch('/api/mentor/messages/:id/reply', requireRole('mentor'), async (req, r
   const reply = (req.body?.reply || '').trim()
   const user = req.authUser
   if (!reply) return res.status(400).json({ error: 'BAD_REQUEST', message: 'Reply cannot be empty.' })
+
+  // Demo mentor — simulate a successful reply (no real rows to update).
+  const replyToken = (req.headers.authorization || '').split(' ')[1]
+  if (replyToken === 'demo-mentor-token') {
+    return res.json({ success: true, simulated: true, message: { id, reply, status: 'answered', replied_at: new Date().toISOString() } })
+  }
 
   try {
     // Verify the mentor owns the mentor profile the message is assigned to.
@@ -2302,6 +2339,206 @@ app.patch('/api/mentor/messages/:id/reply', requireRole('mentor'), async (req, r
     res.json({ success: true, message })
   } catch (err) {
     console.error('Mentor reply error:', err.message)
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
+  }
+})
+
+// ── GET /api/mentor/messages — fetch student's own mentor requests ────────────
+app.get('/api/mentor/messages', requireAuth(), async (req, res) => {
+  const user = req.authUser
+  try {
+    const client = getSupabaseClient(req.headers.authorization)
+    const { data, error } = await client
+      .from('mentor_messages')
+      .select('*, mentors(name, initials, college)')
+      .eq('student_id', user.id)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    res.json({ messages: data || [] })
+  } catch (err) {
+    console.error('Fetch mentor messages error:', err.message)
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
+  }
+})
+
+// ── GET /api/mentor/workspace — everything the mentor dashboard needs ─────────
+// Returns the mentor's application status (approved | rejected | pending) plus,
+// once their account is linked to an approved mentor profile, the student
+// questions and booking requests they've received. Auto-claims a matching
+// mentor profile by email on first visit.
+app.get('/api/mentor/workspace', requireAuth(), async (req, res) => {
+  const user = req.authUser
+  const token = (req.headers.authorization || '').split(' ')[1]
+
+  // Demo mentor — return a friendly simulated workspace so the UI is explorable.
+  if (token === 'demo-mentor-token') {
+    const nowIso = new Date().toISOString()
+    return res.json({
+      application: { status: 'approved', created_at: nowIso },
+      mentor: {
+        id: 'demo-mentor', name: 'Demo Mentor', initials: 'DM',
+        college: 'IIT Bombay', degree: 'B.Tech CSE', stream_category: 'Science (PCM)',
+        available: true, story: 'Here to help students navigate their choices.', linkedin: '',
+        initials_bg: 'bg-indigo-500/20 text-indigo-300',
+      },
+      bookings: [],
+      messages: [
+        {
+          id: 'demo-msg-1', subject: 'Confused between PCM and PCB',
+          contact_name: 'Aarav Gupta', contact_email: 'aarav@example.com',
+          category: 'Stream / Subject Choice',
+          question: 'I enjoy biology but also like physics. How should I decide between PCM and PCB?',
+          status: 'pending', reply: '', created_at: nowIso,
+        },
+      ],
+    })
+  }
+
+  const admin = supabaseAdmin || getSupabaseClient(req.headers.authorization)
+  try {
+    // 1. Most recent application filed under this account's email.
+    let application = null
+    if (user.email) {
+      const { data: apps } = await admin
+        .from('mentor_applications')
+        .select('id, name, email, status, rejection_reason, created_at')
+        .eq('email', user.email)
+        .order('created_at', { ascending: false })
+        .limit(1)
+      application = (apps && apps[0]) || null
+    }
+
+    // 2. Mentor profile — linked by user_id first, else claim by matching email.
+    let mentor = null
+    const { data: byUser } = await admin.from('mentors').select('*').eq('user_id', user.id).maybeSingle()
+    mentor = byUser || null
+
+    if (!mentor && user.email) {
+      // Guarded: the email column may not be migrated yet.
+      try {
+        const { data: byEmail } = await admin
+          .from('mentors').select('*').eq('email', user.email).is('user_id', null).maybeSingle()
+        if (byEmail) {
+          const { data: claimed } = await admin
+            .from('mentors').update({ user_id: user.id }).eq('id', byEmail.id).select().maybeSingle()
+          mentor = claimed || byEmail
+        }
+      } catch (claimErr) {
+        console.warn('[mentor workspace] claim-by-email skipped:', claimErr.message)
+      }
+    }
+
+    // 3. Once linked to a real profile, make sure their role is 'mentor' so the
+    //    reply endpoint (requireRole('mentor')) accepts them.
+    if (mentor) {
+      await admin.from('students').update({ role: 'mentor' }).eq('id', user.id)
+    }
+
+    // 4. Received questions + booking requests for the linked mentor.
+    let messages = []
+    let bookings = []
+    if (mentor) {
+      const { data: msgs } = await admin
+        .from('mentor_messages').select('*').eq('mentor_id', mentor.id).order('created_at', { ascending: false })
+      messages = msgs || []
+      const { data: sess } = await admin
+        .from('mentor_sessions').select('*').eq('mentor_id', mentor.id).order('created_at', { ascending: false })
+      bookings = sess || []
+    }
+
+    res.json({ application, mentor, messages, bookings })
+  } catch (err) {
+    console.error('Mentor workspace error:', err.message)
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
+  }
+})
+
+// ── PATCH /api/mentor/sessions/:id/respond — mentor accepts/declines a booking ─
+// The mentor approves the request or declines it, optionally including a message
+// (e.g. the time they're actually available). The student is notified by email
+// and sees the status + message on their "My Mentor Requests" page.
+app.patch('/api/mentor/sessions/:id/respond', requireRole('mentor'), async (req, res) => {
+  const { id } = req.params
+  const user = req.authUser
+  const status = (req.body?.status || '').trim()        // 'accepted' | 'declined' | 'rescheduled' | 'completed'
+  const response = (req.body?.response || '').trim()     // mentor's note / availability / suggested time
+  const allowed = ['accepted', 'declined', 'rescheduled', 'completed']
+  if (!allowed.includes(status)) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'Invalid status.' })
+  }
+  if (status === 'rescheduled' && !response) {
+    return res.status(400).json({ error: 'BAD_REQUEST', message: 'Please suggest an alternative time in your message.' })
+  }
+
+  // Demo mentor — simulate success (no real rows to update).
+  const token = (req.headers.authorization || '').split(' ')[1]
+  if (token === 'demo-mentor-token') {
+    return res.json({ success: true, simulated: true, booking: { id, status, mentor_response: response } })
+  }
+
+  try {
+    const { data: mentorRow } = await supabase.from('mentors').select('id, name').eq('user_id', user.id).maybeSingle()
+    if (!mentorRow) return res.status(403).json({ error: 'FORBIDDEN', message: 'No mentor profile found.' })
+
+    const client = getSupabaseClient(req.headers.authorization)
+    let { data: booking, error } = await client
+      .from('mentor_sessions')
+      .update({ status, mentor_response: response })
+      .eq('id', id)
+      .eq('mentor_id', mentorRow.id)
+      .select()
+      .single()
+    // Fall back if the mentor_response column hasn't been migrated yet.
+    if (error && (error.code === 'PGRST204' || error.code === '42703' || /mentor_response/.test(error.message || ''))) {
+      console.warn('[mentor booking] mentor_response column missing — run supabase_mentor_dashboard_migration.sql. Updating status only.')
+      const retry = await client
+        .from('mentor_sessions').update({ status }).eq('id', id).eq('mentor_id', mentorRow.id).select().single()
+      booking = retry.data; error = retry.error
+    }
+    if (error) throw error
+
+    // Notify the student who booked (best-effort).
+    if (booking?.contact_email) {
+      const label = status === 'accepted' ? 'confirmed ✅'
+        : status === 'declined' ? 'not available right now'
+        : status === 'rescheduled' ? 'a new time was suggested 🕒'
+        : status
+      sendEmail(
+        booking.contact_email,
+        `Your Mentor Booking Update — Aage Kya?`,
+        `<p>Hi ${booking.contact_name || 'there'},</p>
+         <p><strong>${mentorRow.name}</strong> has responded to your session request. Status: <strong>${label}</strong>.</p>
+         ${response ? `<p><strong>Message from your mentor:</strong> ${response}</p>` : ''}
+         <p>Sign in and open "My Mentor Requests" to see the details.</p>
+         <p>— Team Aage Kya?</p>`
+      ).catch(() => {})
+    }
+
+    res.json({ success: true, booking })
+  } catch (err) {
+    console.error('Mentor booking respond error:', err.message)
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
+  }
+})
+
+// ── GET /api/student/bookings — a student's own booking requests + responses ──
+app.get('/api/student/bookings', requireAuth(), async (req, res) => {
+  const user = req.authUser
+  const token = (req.headers.authorization || '').split(' ')[1]
+  if (token === 'demo-student-token' || token === 'demo-admin-token' || token === 'demo-mentor-token') {
+    return res.json({ bookings: [] })
+  }
+  try {
+    const client = getSupabaseClient(req.headers.authorization)
+    const { data, error } = await client
+      .from('mentor_sessions')
+      .select('*, mentors(name, initials, college)')
+      .eq('student_id', user.id)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    res.json({ bookings: data || [] })
+  } catch (err) {
+    console.error('Fetch student bookings error:', err.message)
     res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
   }
 })
@@ -3027,6 +3264,21 @@ app.get('/api/admin/mentor-bookings', requireRole('admin'), async (req, res) => 
   }
 })
 
+// GET /api/admin/mentor-messages — Fetch all student -> mentor questions (monitoring)
+app.get('/api/admin/mentor-messages', requireRole('admin'), async (req, res) => {
+  const client = supabaseAdmin || supabase
+  try {
+    const { data, error } = await client
+      .from('mentor_messages')
+      .select('*, mentors(name, initials)')
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    res.json({ messages: data || [] })
+  } catch (err) {
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
+  }
+})
+
 // GET /api/admin/mentor-applications — Fetch all applications
 app.get('/api/admin/mentor-applications', requireRole('admin'), async (req, res) => {
   const client = supabaseAdmin || supabase
@@ -3066,23 +3318,31 @@ app.post('/api/admin/mentor-applications/:id/approve', requireRole('admin'), asy
     ]
     const chosenStyle = styles[Math.floor(Math.random() * styles.length)]
 
-    const { error: insertErr } = await client
-      .from('mentors')
-      .insert({
-        name: app.name,
-        initials,
-        college: app.college || app.profession || 'N/A',
-        degree: app.degree || app.profession || 'N/A',
-        stream: app.stream_transition || app.stream_category || 'General',
-        stream_category: app.stream_category || 'Other',
-        city: 'Online',
-        linkedin: app.linkedin || '',
-        story: app.story,
-        tags: [app.degree || app.profession || 'Mentor', 'Approved'],
-        available: true,
-        ...chosenStyle
-      })
+    const mentorRow = {
+      name: app.name,
+      initials,
+      college: app.college || app.profession || 'N/A',
+      degree: app.degree || app.profession || 'N/A',
+      stream: app.stream_transition || app.stream_category || 'General',
+      stream_category: app.stream_category || 'Other',
+      city: 'Online',
+      linkedin: app.linkedin || '',
+      story: app.story,
+      email: app.email || null,      // link key: matches the mentor's login email
+      tags: [app.degree || app.profession || 'Mentor', 'Approved'],
+      available: true,
+      ...chosenStyle
+    }
 
+    let { error: insertErr } = await client.from('mentors').insert(mentorRow)
+    // If the `email` column hasn't been migrated yet, retry without it so the
+    // approval still succeeds (run supabase_mentor_dashboard_migration.sql).
+    if (insertErr && (insertErr.code === 'PGRST204' || insertErr.code === '42703' || /email/.test(insertErr.message || ''))) {
+      console.warn('[mentor approve] mentors.email column missing — run supabase_mentor_dashboard_migration.sql. Inserting without email.')
+      const { email, ...noEmail } = mentorRow
+      const retry = await client.from('mentors').insert(noEmail)
+      insertErr = retry.error
+    }
     if (insertErr && insertErr.code !== '23505') { // ignore duplicate name error
       throw insertErr
     }
@@ -3094,6 +3354,22 @@ app.post('/api/admin/mentor-applications/:id/approve', requireRole('admin'), asy
       .eq('id', id)
 
     if (updateErr) throw updateErr
+
+    // 3b. Best-effort: if the applicant already has an account, link their
+    // mentor profile to it and flip their role so their dashboard works
+    // immediately. Otherwise it auto-links on their next login (by email).
+    if (supabaseAdmin && app.email) {
+      try {
+        const { data: list } = await supabaseAdmin.auth.admin.listUsers()
+        const acct = (list?.users || []).find(u => (u.email || '').toLowerCase() === app.email.toLowerCase())
+        if (acct) {
+          await supabaseAdmin.from('mentors').update({ user_id: acct.id }).eq('name', app.name)
+          await supabaseAdmin.from('students').update({ role: 'mentor' }).eq('id', acct.id)
+        }
+      } catch (linkErr) {
+        console.warn('[mentor approve] account auto-link skipped:', linkErr.message)
+      }
+    }
 
     // Notify the applicant that they've been approved (best-effort).
     if (app.email) {

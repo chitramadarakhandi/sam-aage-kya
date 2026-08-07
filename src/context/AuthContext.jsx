@@ -10,19 +10,35 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null) // students row
 
   useEffect(() => {
-    // Check if there is a stored demo session first
+    // Check if there is a stored demo session first — but only use it if
+    // there is NOT also a real Supabase session. A stale demo flag left
+    // over from a previous "Demo Sandbox Bypass" click must never shadow a
+    // real logged-in account (that was causing every mentor to see demo
+    // data instead of their own).
     const storedDemo = localStorage.getItem('aageKyaDemoSession')
     if (storedDemo) {
-      try {
-        const { demoSession, demoProfile } = JSON.parse(storedDemo)
-        setSession(demoSession)
-        setUser(demoSession.user)
-        setProfile(demoProfile)
+      supabase.auth.getSession().then(({ data: { session: realSession } }) => {
+        if (realSession?.user) {
+          // A real session exists — the demo flag is stale, drop it and use the real one.
+          localStorage.removeItem('aageKyaDemoSession')
+          setSession(realSession)
+          setUser(realSession.user)
+          fetchProfile(realSession.user.id, realSession.user)
+          setLoading(false)
+          return
+        }
+        try {
+          const { demoSession, demoProfile } = JSON.parse(storedDemo)
+          setSession(demoSession)
+          setUser(demoSession.user)
+          setProfile(demoProfile)
+        } catch (err) {
+          console.error('Failed to parse demo session', err)
+          localStorage.removeItem('aageKyaDemoSession')
+        }
         setLoading(false)
-        return
-      } catch (err) {
-        console.error('Failed to parse demo session', err)
-      }
+      })
+      return
     }
 
     // Initial session check
@@ -70,6 +86,9 @@ export function AuthProvider({ children }) {
         class_level = 'other'
       } else if (userType === 'admin') {
         role = 'admin'
+        class_level = 'other'
+      } else if (userType === 'mentor') {
+        role = 'mentor'
         class_level = 'other'
       }
 

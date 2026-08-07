@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
 
@@ -49,6 +49,10 @@ export default function AuthModal({ isOpen, onClose }) {
   const handleMagicLink = async (e) => {
     e.preventDefault()
     if (!email.trim()) return setErrorMsg('Please enter your email.')
+    // Clear any leftover demo session — otherwise AuthContext's auth-state
+    // listener ignores real sign-ins while this flag is present, and the
+    // user keeps seeing demo/sandbox data instead of their real account.
+    localStorage.removeItem('aageKyaDemoSession')
     setLoading(true); setErrorMsg('')
     const { error } = await supabase.auth.signInWithOtp({
       email,
@@ -66,6 +70,10 @@ export default function AuthModal({ isOpen, onClose }) {
   const handleEmailPassword = async (e) => {
     e.preventDefault()
     setErrorMsg('')
+    // Clear any leftover demo session — otherwise AuthContext's auth-state
+    // listener ignores real sign-ins while this flag is present, and the
+    // user keeps seeing demo/sandbox data instead of their real account.
+    localStorage.removeItem('aageKyaDemoSession')
     if (!email.trim() || !password)
       return setErrorMsg('Please fill in all fields.')
 
@@ -204,7 +212,7 @@ export default function AuthModal({ isOpen, onClose }) {
                       onClick={() => handleDemoLogin(userType)}
                       className="mt-1 text-left text-saffron hover:underline font-bold"
                     >
-                      ⚡ Bypass rate limit &amp; sign in instantly as {userType === 'admin' ? 'Admin' : 'Student'} using &quot;{email}&quot; →
+                      ⚡ Bypass rate limit &amp; sign in instantly as {userType === 'admin' ? 'Admin' : userType === 'mentor' ? 'Mentor' : 'Student'} using &quot;{email}&quot; →
                     </button>
                   )}
                 </div>
@@ -224,9 +232,10 @@ export default function AuthModal({ isOpen, onClose }) {
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-300 mb-1.5">User Type</label>
-                    <div className="grid grid-cols-2 gap-2 mt-1">
+                    <div className="grid grid-cols-3 gap-2 mt-1">
                       {[
-                        { id: 'student', label: 'Student / User', icon: '🎓' },
+                        { id: 'student', label: 'Student', icon: '🎓' },
+                        { id: 'mentor', label: 'Mentor', icon: '🧭' },
                         { id: 'admin', label: 'Admin', icon: '🔑' },
                       ].map(t => (
                         <button
@@ -244,6 +253,11 @@ export default function AuthModal({ isOpen, onClose }) {
                         </button>
                       ))}
                     </div>
+                    {userType === 'mentor' && (
+                      <p className="text-gray-500 text-[10px] mt-1.5 leading-relaxed">
+                        Log in as a mentor to answer student questions and track your application status.
+                      </p>
+                    )}
                   </div>
                   <button type="submit" disabled={loading} className="w-full btn-primary py-3 text-sm gap-2 disabled:opacity-60">
                     {loading ? <Spinner /> : null}
@@ -290,9 +304,10 @@ export default function AuthModal({ isOpen, onClose }) {
                   {mode === 'signup' && (
                     <div>
                       <label className="block text-xs font-semibold text-gray-300 mb-1.5">User Type</label>
-                      <div className="grid grid-cols-2 gap-2 mt-1">
+                      <div className="grid grid-cols-3 gap-2 mt-1">
                         {[
-                          { id: 'student', label: 'Student / User', icon: '🎓' },
+                          { id: 'student', label: 'Student', icon: '🎓' },
+                          { id: 'mentor', label: 'Mentor', icon: '🧭' },
                           { id: 'admin', label: 'Admin', icon: '🔑' },
                         ].map(t => (
                           <button
@@ -310,6 +325,12 @@ export default function AuthModal({ isOpen, onClose }) {
                           </button>
                         ))}
                       </div>
+                      {userType === 'mentor' && (
+                        <p className="text-gray-500 text-[10px] mt-1.5 leading-relaxed">
+                          Mentors answer student questions and get application updates in their dashboard.
+                          Want to become one? <Link to="/mentor-apply" onClick={onClose} className="text-saffron hover:underline">Apply here</Link>.
+                        </p>
+                      )}
                     </div>
                   )}
 

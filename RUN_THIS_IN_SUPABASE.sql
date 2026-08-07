@@ -76,5 +76,23 @@ CREATE POLICY "mentor_messages_mentor_update"
   ON public.mentor_messages FOR UPDATE
   USING (auth.uid() IN (SELECT user_id FROM public.mentors WHERE id = mentor_id));
 
--- ─── D. Force PostgREST to refresh its schema cache immediately ──────────────
+-- ─── D. Mentor dashboard linkage — email column + rejection reason ──────────
+ALTER TABLE public.mentors ADD COLUMN IF NOT EXISTS email TEXT;
+CREATE INDEX IF NOT EXISTS idx_mentors_email ON public.mentors (email);
+ALTER TABLE public.mentor_applications ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+
+UPDATE public.mentors m
+SET email = a.email
+FROM public.mentor_applications a
+WHERE m.email IS NULL
+  AND lower(m.name) = lower(a.name)
+  AND a.email IS NOT NULL;
+
+-- ─── E. Booking responses — mentor's reply/availability message to a booking ─
+ALTER TABLE public.mentor_sessions ADD COLUMN IF NOT EXISTS mentor_response TEXT NOT NULL DEFAULT '';
+
+-- ─── F. Student query class level (10th / 12th / Other) ──────────────────────
+ALTER TABLE public.mentor_messages ADD COLUMN IF NOT EXISTS class_level TEXT NOT NULL DEFAULT '';
+
+-- ─── G. Force PostgREST to refresh its schema cache immediately ──────────────
 NOTIFY pgrst, 'reload schema';

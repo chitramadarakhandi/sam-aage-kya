@@ -11,11 +11,14 @@ export default function Navbar() {
   const resultLink = profile?.class_level === 'class10' ? '/class10/result' : '/result'
 
   const isAdminUser = profile?.role === 'admin'
+  const isMentorUser = profile?.role === 'mentor'
 
-  // Admins get a stripped-down nav — only their Admin Dashboard. All the
-  // student-facing sections (Home, Explore, Careers, etc.) are hidden.
+  // Admins and mentors get a stripped-down nav — only their own dashboard.
+  // All the student-facing sections (Home, Explore, Careers, etc.) are hidden.
   const navLinks = isAdminUser
     ? [{ to: '/admin-dashboard', label: 'Admin Dashboard' }]
+    : isMentorUser
+    ? [{ to: '/mentor-dashboard', label: 'Mentor Dashboard' }]
     : [
         { to: '/',           label: 'Home' },
         { to: '/explore',    label: 'Explore Paths' },
@@ -75,7 +78,7 @@ export default function Navbar() {
           <div className="flex items-center justify-between h-16">
 
             {/* Logo */}
-            <Link to={isAdminUser ? '/admin-dashboard' : '/'} className="flex items-center gap-2.5 group flex-shrink-0">
+            <Link to={isAdminUser ? '/admin-dashboard' : isMentorUser ? '/mentor-dashboard' : '/'} className="flex items-center gap-2.5 group flex-shrink-0">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-saffron to-saffron-dark flex items-center justify-center text-white font-bold text-sm font-display group-hover:scale-110 transition-transform duration-200 shadow-md">
                 AK
               </div>
@@ -142,7 +145,7 @@ export default function Navbar() {
                         </p>
                       </div>
                       <div className="py-1">
-                        {!isAdmin && (
+                        {!isAdmin && !isMentor && (
                           <Link
                             to="/dashboard"
                             onClick={() => setDropdownOpen(false)}
@@ -178,7 +181,7 @@ export default function Navbar() {
                             Mentor Dashboard
                           </Link>
                         )}
-                        {!isAdmin && (
+                        {!isAdmin && !isMentor && (
                           <Link
                             to={resultLink}
                             onClick={() => setDropdownOpen(false)}

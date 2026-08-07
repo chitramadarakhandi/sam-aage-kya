@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
-import { patchMentorReply } from '../api'
+import { patchMentorReply, getMentorWorkspace, respondMentorBooking } from '../api'
 
-function formatDateTime(ts) {
-  if (!ts) return 'Not specified'
+function formatDate(ts) {
+  if (!ts) return ''
   try {
     return new Date(ts).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
   } catch {
@@ -13,24 +13,157 @@ function formatDateTime(ts) {
   }
 }
 
-// ─── Booking Request Card ─────────────────────────────────────────────────────
+const CLASS_LABELS = { '10th': 'Class 10th', '12th': 'Class 12th', Other: 'Other / UG' }
 
-function BookingCard({ booking, onAccept, onReject, onComplete, actionLoading }) {
-  const isLoading = actionLoading === booking.id
+// ─── Application status banner ────────────────────────────────────────────────
+// Shows a new/returning mentor whether their application was accepted, rejected,
+// or is still under review — right inside the dashboard.
+function ApplicationBanner({ application, linked }) {
+  const status = application?.status
+
+  if (linked && status !== 'rejected') {
+    return (
+      <div className="glass-card border-emerald-500/20 bg-emerald-500/5 p-4 sm:p-5 mb-6 flex items-start gap-3">
+        <span className="text-2xl flex-shrink-0">🎉</span>
+        <div>
+          <p className="text-emerald-300 text-sm font-bold">You're an approved mentor.</p>
+          <p className="text-gray-400 text-xs mt-0.5">Student questions and booking requests sent to you appear below.</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (status === 'rejected') {
+    return (
+      <div className="glass-card border-rose-500/20 bg-rose-500/5 p-4 sm:p-5 mb-6 flex items-start gap-3">
+        <span className="text-2xl flex-shrink-0">📋</span>
+        <div>
+          <p className="text-rose-300 text-sm font-bold">Your mentor application wasn't approved.</p>
+          {application?.rejection_reason
+            ? <p className="text-gray-400 text-xs mt-0.5"><span className="font-semibold text-gray-300">Reason:</span> {application.rejection_reason}</p>
+            : <p className="text-gray-400 text-xs mt-0.5">You're welcome to update your details and apply again.</p>}
+          <Link to="/mentor-apply" className="inline-block mt-2 text-saffron text-xs font-semibold hover:underline">Update &amp; resubmit application →</Link>
+        </div>
+      </div>
+    )
+  }
+
+  if (status === 'pending') {
+    return (
+      <div className="glass-card border-amber-500/20 bg-amber-500/5 p-4 sm:p-5 mb-6 flex items-start gap-3">
+        <span className="text-2xl flex-shrink-0">⏳</span>
+        <div>
+          <p className="text-amber-300 text-sm font-bold">Your mentor application is under review.</p>
+          <p className="text-gray-400 text-xs mt-0.5">
+            You will be able to access mentoring features once your application has been approved.
+            Submitted {formatDate(application?.created_at)}.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (status === 'approved' && !linked) {
+    return (
+      <div className="glass-card border-emerald-500/20 bg-emerald-500/5 p-4 sm:p-5 mb-6 flex items-start gap-3">
+        <span className="text-2xl flex-shrink-0">✅</span>
+        <div>
+          <p className="text-emerald-300 text-sm font-bold">Your application was approved!</p>
+          <p className="text-gray-400 text-xs mt-0.5">
+            We're linking your profile to this account. If it doesn't appear shortly, make sure you logged in with the same email you applied with ({application?.email || 'your application email'}).
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return null
+}
+
+// ─── A single student query card with an inline answer box ────────────────────
+function QueryCard({ msg, draft, onDraftChange, onSend, sending }) {
+  const answered = msg.status === 'answered'
   return (
-    <div className="glass-card border-white/5 p-5 flex flex-col gap-3">
+    <div className="glass-card border-white/5 p-5 sm:p-6 space-y-3">
       <div className="flex justify-between items-start gap-3">
         <div>
-          <h4 className="font-display text-sm font-bold text-white">{booking.contact_name || 'Student'}</h4>
-          <p className="text-gray-400 text-xs">{booking.contact_email}</p>
-          {booking.contact_phone && <p className="text-gray-500 text-xs">{booking.contact_phone}</p>}
+          <h3 className="font-display font-bold text-white text-sm">{msg.subject || 'Question'}</h3>
+          <p className="text-gray-400 text-xs mt-0.5">
+            {msg.contact_name || 'Student'}
+            {msg.class_level ? ` · ${CLASS_LABELS[msg.class_level] || msg.class_level}` : ''}
+            {' '}· {msg.contact_email} · {formatDate(msg.created_at)}
+          </p>
         </div>
         <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border flex-shrink-0 ${
-          booking.status === 'completed' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-          : booking.status === 'accepted' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
-          : booking.status === 'rejected' ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
-          : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-        }`}>{booking.status || 'pending'}</span>
+          answered ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+        }`}>{answered ? 'Replied' : 'Pending'}</span>
+      </div>
+
+      {msg.category && (
+        <span className="inline-block text-[10px] font-semibold px-2.5 py-1 rounded-lg border bg-white/5 border-white/10 text-gray-400">
+          {msg.category}
+        </span>
+      )}
+
+      <div className="text-sm text-gray-200 bg-white/[0.03] p-3.5 rounded-xl border border-white/5">
+        <span className="text-gray-500 text-xs font-semibold block mb-1">Student asked:</span>
+        {msg.question}
+      </div>
+
+      {answered ? (
+        <div className="text-sm text-gray-200 bg-emerald-500/5 p-3.5 rounded-xl border border-emerald-500/15">
+          <span className="text-emerald-400 text-xs font-semibold block mb-1">
+            Your reply{msg.replied_at ? ` · ${formatDate(msg.replied_at)}` : ''}:
+          </span>
+          {msg.reply}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <textarea
+            rows={3}
+            value={draft || ''}
+            onChange={(e) => onDraftChange(e.target.value)}
+            placeholder="Write your reply to the student..."
+            className="w-full bg-white/[0.05] border border-white/10 hover:border-white/20 focus:border-saffron/60 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm transition-all outline-none focus:ring-2 focus:ring-saffron/20 resize-none"
+          />
+          <div className="flex justify-end">
+            <button
+              onClick={onSend}
+              disabled={!(draft || '').trim() || sending}
+              className="btn-primary py-2 px-6 text-xs disabled:opacity-50 inline-flex items-center gap-2"
+            >
+              {sending ? 'Sending...' : 'Reply →'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── A single booking request card with approve / decline / reschedule ────────
+function BookingCard({ booking, draft, onDraftChange, onRespond, busy }) {
+  const status = booking.status || 'pending'
+  const responded = status !== 'pending'
+  const statusStyle =
+    status === 'accepted' || status === 'completed' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+    : status === 'declined' ? 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+    : status === 'rescheduled' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+    : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+  const statusLabel =
+    status === 'accepted' ? 'Approved' : status === 'completed' ? 'Completed'
+    : status === 'declined' ? 'Declined' : status === 'rescheduled' ? 'Rescheduled' : 'Pending'
+
+  return (
+    <div className="glass-card border-white/5 p-5 sm:p-6 space-y-3">
+      <div className="flex justify-between items-start gap-3">
+        <div>
+          <h3 className="font-display font-bold text-white text-sm">{booking.contact_name || 'Student'}</h3>
+          <p className="text-gray-400 text-xs mt-0.5">{booking.contact_email}{booking.contact_phone ? ` · ${booking.contact_phone}` : ''}</p>
+        </div>
+        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border flex-shrink-0 ${statusStyle}`}>
+          {statusLabel}
+        </span>
       </div>
 
       <div className="grid grid-cols-2 gap-2 text-xs bg-white/5 rounded-xl p-3 border border-white/5">
@@ -48,131 +181,126 @@ function BookingCard({ booking, onAccept, onReject, onComplete, actionLoading })
         </div>
         <div>
           <span className="text-gray-500 block text-[10px]">Preferred Date/Time</span>
-          <span className="text-white font-medium">{formatDateTime(booking.session_date)}</span>
+          <span className="text-white font-medium">{booking.session_date ? formatDate(booking.session_date) : 'Flexible'}</span>
         </div>
       </div>
 
       {booking.guidance_query && (
         <div className="text-xs text-gray-300 bg-white/[0.02] p-3 rounded-xl border border-white/5">
           <span className="text-gray-500 block font-semibold mb-1">Guidance requested:</span>
-          "{booking.guidance_query}"
+          {booking.guidance_query}
         </div>
       )}
 
-      {booking.status === 'pending' && (
-        <div className="flex gap-2 pt-1">
-          <button
-            onClick={() => onAccept(booking.id)}
-            disabled={isLoading}
-            className="flex-1 btn-primary py-2 text-xs bg-emerald-600 hover:bg-emerald-500 border-emerald-500/30 text-white disabled:opacity-50"
-          >
-            {isLoading ? 'Processing...' : '✅ Accept'}
-          </button>
-          <button
-            onClick={() => onReject(booking.id)}
-            disabled={isLoading}
-            className="flex-1 py-2 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/20 text-rose-300 transition-all disabled:opacity-50"
-          >
-            {isLoading ? 'Processing...' : '❌ Reject'}
-          </button>
-        </div>
-      )}
-
-      {booking.status === 'accepted' && (
-        <div className="pt-1">
-          <button
-            onClick={() => onComplete(booking.id)}
-            disabled={isLoading}
-            className="w-full btn-primary py-2 text-xs disabled:opacity-50"
-          >
-            {isLoading ? 'Processing...' : '🏁 Mark as Completed'}
-          </button>
+      {responded ? (
+        booking.mentor_response ? (
+          <div className={`text-sm text-gray-200 p-3.5 rounded-xl border ${
+            status === 'declined' ? 'bg-rose-500/5 border-rose-500/15'
+            : status === 'rescheduled' ? 'bg-blue-500/5 border-blue-500/15'
+            : 'bg-emerald-500/5 border-emerald-500/15'
+          }`}>
+            <span className={`text-xs font-semibold block mb-1 ${
+              status === 'declined' ? 'text-rose-300' : status === 'rescheduled' ? 'text-blue-300' : 'text-emerald-400'
+            }`}>Your message to the student:</span>
+            {booking.mentor_response}
+          </div>
+        ) : (
+          <p className="text-gray-500 text-xs italic">You marked this request as {statusLabel.toLowerCase()}.</p>
+        )
+      ) : (
+        <div className="space-y-2">
+          <textarea
+            rows={2}
+            value={draft || ''}
+            onChange={(e) => onDraftChange(e.target.value)}
+            placeholder="Add a message — e.g. 'Available Sat 5pm' or 'I am unavailable, free tomorrow between 5-6 PM.'"
+            className="w-full bg-white/[0.05] border border-white/10 hover:border-white/20 focus:border-saffron/60 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm transition-all outline-none focus:ring-2 focus:ring-saffron/20 resize-none"
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => onRespond('accepted')}
+              disabled={busy}
+              className="flex-1 btn-primary py-2 text-xs bg-emerald-600 hover:bg-emerald-500 border-emerald-500/30 text-white disabled:opacity-50 min-w-[100px]"
+            >
+              {busy ? 'Saving...' : '✅ Approve'}
+            </button>
+            <button
+              onClick={() => onRespond('rescheduled')}
+              disabled={busy}
+              className="flex-1 py-2 rounded-xl text-xs font-semibold bg-blue-500/10 hover:bg-blue-500/25 border border-blue-500/20 text-blue-300 transition-all disabled:opacity-50 min-w-[130px]"
+            >
+              {busy ? 'Saving...' : '🕒 Suggest Another Time'}
+            </button>
+            <button
+              onClick={() => onRespond('declined')}
+              disabled={busy}
+              className="flex-1 py-2 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/20 text-rose-300 transition-all disabled:opacity-50 min-w-[100px]"
+            >
+              {busy ? 'Saving...' : '🚫 Decline'}
+            </button>
+          </div>
         </div>
       )}
     </div>
   )
 }
 
-// ─── Page ──────────────────────────────────────────────────────────────────────
-
 export default function MentorDashboard() {
   const { user, profile, session, loading: authLoading } = useAuth()
   const navigate = useNavigate()
 
   const [mentorProfile, setMentorProfile] = useState(null)
-  const [bookings, setBookings] = useState([])
+  const [application, setApplication] = useState(null)
   const [messages, setMessages] = useState([])
+  const [bookings, setBookings] = useState([])
   const [loading, setLoading] = useState(true)
-  const [actionLoading, setActionLoading] = useState(null)
-  const [activeTab, setActiveTab] = useState('upcoming') // 'upcoming' | 'accepted' | 'completed' | 'messages' | 'settings'
+  const [activeTab, setActiveTab] = useState('queries') // queries | requests | accepted | completed | settings
 
-  // Per-message reply drafts + in-flight state
   const [replyDrafts, setReplyDrafts] = useState({})
   const [replyingId, setReplyingId] = useState(null)
+
+  const [bookingDrafts, setBookingDrafts] = useState({})
+  const [bookingBusyId, setBookingBusyId] = useState(null)
 
   // Profile settings form
   const [settingsForm, setSettingsForm] = useState({ story: '', linkedin: '', available: true })
   const [savingSettings, setSavingSettings] = useState(false)
   const [settingsSaved, setSettingsSaved] = useState(false)
 
-  // ── Guard: redirect non-mentors ─────────────────────────────
+  // Guard: only mentors here.
   useEffect(() => {
     if (!authLoading && !user) navigate('/')
     if (!authLoading && profile && profile.role !== 'mentor') navigate('/')
   }, [user, profile, authLoading, navigate])
 
-  // ── Load mentor profile and booking requests ────────────────
+  // Load application status + linked profile + received student questions/bookings.
   const loadData = useCallback(async () => {
     if (!user) return
     setLoading(true)
-    const { data: mp } = await supabase
-      .from('mentors')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle()
-    setMentorProfile(mp)
-    if (mp) {
-      setSettingsForm({ story: mp.story || '', linkedin: mp.linkedin || '', available: mp.available !== false })
-
-      const { data: sess } = await supabase
-        .from('mentor_sessions')
-        .select('*')
-        .eq('mentor_id', mp.id)
-        .order('created_at', { ascending: false })
-      setBookings(sess || [])
-
-      const { data: msgs } = await supabase
-        .from('mentor_messages')
-        .select('*')
-        .eq('mentor_id', mp.id)
-        .order('created_at', { ascending: false })
-      setMessages(msgs || [])
+    try {
+      const res = await getMentorWorkspace(session?.access_token)
+      if (res.ok) {
+        const { application: app, mentor: mp, messages: msgs, bookings: bks } = await res.json()
+        setApplication(app || null)
+        setMentorProfile(mp || null)
+        setMessages(msgs || [])
+        setBookings(bks || [])
+        if (mp) {
+          setSettingsForm({ story: mp.story || '', linkedin: mp.linkedin || '', available: mp.available !== false })
+        }
+      } else {
+        setApplication(null); setMentorProfile(null); setMessages([]); setBookings([])
+      }
+    } catch {
+      setApplication(null); setMentorProfile(null); setMessages([]); setBookings([])
     }
     setLoading(false)
-  }, [user])
+  }, [user, session])
 
   useEffect(() => { loadData() }, [loadData])
 
-  // ── Actions on booking requests ──────────────────────────────
-  const updateBookingStatus = async (id, status) => {
-    setActionLoading(id)
-    try {
-      const { error } = await supabase.from('mentor_sessions').update({ status }).eq('id', id)
-      if (error) throw error
-      setBookings((prev) => prev.map((b) => (b.id === id ? { ...b, status } : b)))
-    } catch (err) {
-      alert(err.message || 'Failed to update booking.')
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  const handleAccept = (id) => updateBookingStatus(id, 'accepted')
-  const handleReject = (id) => updateBookingStatus(id, 'rejected')
-  const handleComplete = (id) => updateBookingStatus(id, 'completed')
-
-  // ── Reply to a student question ──────────────────────────────
-  const handleReply = async (messageId) => {
+  // Reply to a student question.
+  const handleSend = async (messageId) => {
     const reply = (replyDrafts[messageId] || '').trim()
     if (!reply) return
     setReplyingId(messageId)
@@ -180,7 +308,7 @@ export default function MentorDashboard() {
       const res = await patchMentorReply(messageId, reply, session?.access_token)
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
-        throw new Error(err.message || 'Failed to send reply.')
+        throw new Error(err.message || 'Failed to send your reply.')
       }
       const { message } = await res.json().catch(() => ({}))
       setMessages((prev) => prev.map((m) => (m.id === messageId
@@ -188,13 +316,52 @@ export default function MentorDashboard() {
         : m)))
       setReplyDrafts((prev) => ({ ...prev, [messageId]: '' }))
     } catch (err) {
-      alert(err.message || 'Failed to send reply.')
+      alert(err.message || 'Failed to send your reply.')
     } finally {
       setReplyingId(null)
     }
   }
 
-  // ── Profile settings ──────────────────────────────────────────
+  // Approve / decline / reschedule a booking request with a message.
+  const handleBooking = async (bookingId, status) => {
+    const message = (bookingDrafts[bookingId] || '').trim()
+    if ((status === 'declined' || status === 'rescheduled') && !message) {
+      alert('Please add a short message (e.g. a time you are available) before continuing.')
+      return
+    }
+    setBookingBusyId(bookingId)
+    try {
+      const res = await respondMentorBooking(bookingId, status, message, session?.access_token)
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || 'Failed to update the booking.')
+      }
+      setBookings((prev) => prev.map((b) => (b.id === bookingId
+        ? { ...b, status, mentor_response: message }
+        : b)))
+      setBookingDrafts((prev) => ({ ...prev, [bookingId]: '' }))
+    } catch (err) {
+      alert(err.message || 'Failed to update the booking.')
+    } finally {
+      setBookingBusyId(null)
+    }
+  }
+
+  // Mark an accepted session as completed.
+  const handleComplete = async (bookingId) => {
+    setBookingBusyId(bookingId)
+    try {
+      const res = await respondMentorBooking(bookingId, 'completed', bookingDrafts[bookingId] || '', session?.access_token)
+      if (!res.ok) throw new Error('Failed to mark as completed.')
+      setBookings((prev) => prev.map((b) => (b.id === bookingId ? { ...b, status: 'completed' } : b)))
+    } catch (err) {
+      alert(err.message || 'Failed to mark as completed.')
+    } finally {
+      setBookingBusyId(null)
+    }
+  }
+
+  // Profile settings — direct Supabase update (RLS: mentors_self_write allows this).
   const handleSaveSettings = async (e) => {
     e.preventDefault()
     if (!mentorProfile) return
@@ -221,66 +388,73 @@ export default function MentorDashboard() {
     </main>
   )
 
+  // Not linked to an approved mentor profile yet — show status / next steps only.
   if (!mentorProfile) return (
-    <main className="pt-24 pb-16 min-h-screen flex items-center justify-center px-4">
-      <div className="glass-card p-10 text-center max-w-md">
-        <div className="text-4xl mb-4">🔗</div>
-        <h2 className="font-display text-xl font-bold text-white mb-3">No mentor profile linked</h2>
-        <p className="text-gray-400 text-sm leading-relaxed">
-          Your account isn't linked to a mentor profile yet. Contact an admin to link your <code className="text-saffron text-xs bg-saffron/10 px-1.5 py-0.5 rounded">user_id</code> to your mentor row in the database.
-        </p>
+    <main className="pt-24 pb-16 min-h-screen px-4 sm:px-6 lg:px-8 font-sans">
+      <div className="max-w-2xl mx-auto">
+        <div className="text-center mb-8">
+          <h1 className="font-display text-3xl md:text-4xl font-bold text-white mb-2">Mentor Dashboard</h1>
+          <p className="text-gray-400 text-sm">Your application status and updates.</p>
+        </div>
+
+        <ApplicationBanner application={application} linked={false} />
+
+        {!application && (
+          <div className="glass-card border-white/10 p-10 text-center">
+            <div className="text-4xl mb-4">🧭</div>
+            <h2 className="font-display text-xl font-bold text-white mb-2">Become a mentor</h2>
+            <p className="text-gray-400 text-sm leading-relaxed mb-6 max-w-md mx-auto">
+              We couldn't find a mentor application for this email. Apply to start guiding students — once an admin approves you, student queries and bookings appear right here.
+            </p>
+            <Link to="/mentor-apply" className="btn-primary px-8 py-3 text-sm inline-flex items-center gap-2">
+              Apply to Mentor →
+            </Link>
+          </div>
+        )}
       </div>
     </main>
   )
 
-  const now = Date.now()
-  const upcoming = bookings.filter((b) => (b.status === 'pending' || b.status === 'accepted') && (!b.session_date || new Date(b.session_date).getTime() >= now))
-  const accepted = bookings.filter((b) => b.status === 'accepted')
-  const completed = bookings.filter((b) => b.status === 'completed')
+  const pendingQueries = messages.filter((m) => m.status !== 'answered')
+  const answeredQueries = messages.filter((m) => m.status === 'answered')
 
-  const pendingMessages = messages.filter((m) => m.status !== 'answered')
+  const requestBookings = bookings.filter((b) => (b.status || 'pending') === 'pending')
+  const acceptedBookings = bookings.filter((b) => b.status === 'accepted')
+  const completedBookings = bookings.filter((b) => b.status === 'completed')
 
   const TABS = [
-    { id: 'upcoming', label: `📅 Upcoming (${upcoming.length})` },
-    { id: 'accepted', label: `✅ Accepted (${accepted.length})` },
-    { id: 'completed', label: `🏁 Completed (${completed.length})` },
-    { id: 'messages', label: `💬 Messages (${pendingMessages.length})` },
+    { id: 'queries',  label: `💬 Student Queries (${pendingQueries.length})` },
+    { id: 'requests', label: `📥 Booking Requests (${requestBookings.length})` },
+    { id: 'accepted', label: `✅ Accepted Sessions (${acceptedBookings.length})` },
+    { id: 'completed', label: `🏁 Completed Sessions (${completedBookings.length})` },
     { id: 'settings', label: '⚙️ Profile Settings' },
   ]
 
   return (
     <main className="pt-24 pb-16 min-h-screen px-4 sm:px-6 lg:px-8 font-sans">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-4xl mx-auto">
 
-        {/* ── Profile Information ── */}
-        <div className="glass-card border-white/5 p-6 sm:p-8 mb-8 flex flex-col sm:flex-row items-start sm:items-center gap-5">
-          <div className={`w-16 h-16 rounded-2xl ${mentorProfile.initials_bg || 'bg-saffron/20 text-saffron'} flex items-center justify-center font-display font-bold text-xl flex-shrink-0`}>
-            {mentorProfile.initials}
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-6">
+          <div className={`w-14 h-14 rounded-2xl ${mentorProfile.initials_bg || 'bg-saffron/20 text-saffron'} flex items-center justify-center font-display font-bold text-lg flex-shrink-0`}>
+            {mentorProfile.initials || 'M'}
           </div>
-          <div className="flex-1 min-w-0">
-            <h1 className="font-display text-xl font-bold text-white">{mentorProfile.name}</h1>
-            <p className="text-gray-400 text-sm mt-0.5">{mentorProfile.degree} · {mentorProfile.college}</p>
-            <div className="flex items-center gap-2 mt-2 flex-wrap">
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-lg border bg-saffron/10 text-saffron border-saffron/20">
-                {mentorProfile.stream_category}
-              </span>
-              <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border flex items-center gap-1.5 ${
-                mentorProfile.available ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-gray-500/10 text-gray-400 border-gray-500/20'
-              }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${mentorProfile.available ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
-                {mentorProfile.available ? 'Available' : 'Unavailable'}
-              </span>
-            </div>
+          <div className="min-w-0">
+            <h1 className="font-display text-2xl font-bold text-white truncate">{mentorProfile.name}</h1>
+            <p className="text-gray-400 text-sm truncate">{mentorProfile.degree} · {mentorProfile.college}</p>
           </div>
         </div>
 
-        {/* Tab switchers */}
-        <div className="flex flex-wrap gap-2 mb-8">
+        {/* Approval / status banner */}
+        <ApplicationBanner application={application} linked={true} />
+
+        {/* Tab switcher */}
+        <div className="flex flex-wrap gap-2 mb-6">
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setActiveTab(t.id)}
-              className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 border ${
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-200 border ${
                 activeTab === t.id
                   ? 'bg-saffron text-white border-saffron shadow-lg shadow-saffron/20'
                   : 'bg-white/5 border-white/10 text-gray-400 hover:text-white hover:border-white/20'
@@ -291,19 +465,50 @@ export default function MentorDashboard() {
           ))}
         </div>
 
-        {/* ── Upcoming Booking Requests ── */}
-        {activeTab === 'upcoming' && (
+        {/* ── Student Queries ── */}
+        {activeTab === 'queries' && (
           <div className="space-y-4">
-            {upcoming.length === 0 ? (
-              <div className="glass-card border-white/5 p-12 text-center text-gray-400 text-sm">
-                ✨ No upcoming booking requests right now.
+            {messages.length === 0 ? (
+              <div className="glass-card border-white/5 p-12 text-center">
+                <div className="text-4xl mb-3">💬</div>
+                <p className="text-gray-300 text-sm mb-1">No student questions yet.</p>
+                <p className="text-gray-500 text-xs">When a student sends you a question, it shows up here for you to answer.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {upcoming.map((b) => (
-                  <BookingCard key={b.id} booking={b} onAccept={handleAccept} onReject={handleReject} onComplete={handleComplete} actionLoading={actionLoading} />
-                ))}
+              [...pendingQueries, ...answeredQueries].map((m) => (
+                <QueryCard
+                  key={m.id}
+                  msg={m}
+                  draft={replyDrafts[m.id]}
+                  onDraftChange={(val) => setReplyDrafts((prev) => ({ ...prev, [m.id]: val }))}
+                  onSend={() => handleSend(m.id)}
+                  sending={replyingId === m.id}
+                />
+              ))
+            )}
+          </div>
+        )}
+
+        {/* ── Booking Requests (pending only) ── */}
+        {activeTab === 'requests' && (
+          <div className="space-y-4">
+            {requestBookings.length === 0 ? (
+              <div className="glass-card border-white/5 p-12 text-center">
+                <div className="text-4xl mb-3">📥</div>
+                <p className="text-gray-300 text-sm mb-1">No new booking requests.</p>
+                <p className="text-gray-500 text-xs">When a student books a session with you, it appears here to approve, decline, or reschedule.</p>
               </div>
+            ) : (
+              requestBookings.map((b) => (
+                <BookingCard
+                  key={b.id}
+                  booking={b}
+                  draft={bookingDrafts[b.id]}
+                  onDraftChange={(val) => setBookingDrafts((prev) => ({ ...prev, [b.id]: val }))}
+                  onRespond={(status) => handleBooking(b.id, status)}
+                  busy={bookingBusyId === b.id}
+                />
+              ))
             )}
           </div>
         )}
@@ -311,16 +516,39 @@ export default function MentorDashboard() {
         {/* ── Accepted Sessions ── */}
         {activeTab === 'accepted' && (
           <div className="space-y-4">
-            {accepted.length === 0 ? (
+            {acceptedBookings.length === 0 ? (
               <div className="glass-card border-white/5 p-12 text-center text-gray-400 text-sm">
                 No accepted sessions yet.
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {accepted.map((b) => (
-                  <BookingCard key={b.id} booking={b} onAccept={handleAccept} onReject={handleReject} onComplete={handleComplete} actionLoading={actionLoading} />
-                ))}
-              </div>
+              acceptedBookings.map((b) => (
+                <div key={b.id} className="glass-card border-white/5 p-5 sm:p-6 space-y-3">
+                  <div className="flex justify-between items-start gap-3">
+                    <div>
+                      <h4 className="font-display text-sm font-bold text-white">{b.contact_name || 'Student'}</h4>
+                      <p className="text-gray-400 text-xs">{b.contact_email}</p>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border bg-emerald-500/10 border-emerald-500/20 text-emerald-400">Approved</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs bg-white/5 rounded-xl p-3 border border-white/5">
+                    <div><span className="text-gray-500 block text-[10px]">Class</span><span className="text-white font-medium">{b.class_level || '—'}</span></div>
+                    <div><span className="text-gray-500 block text-[10px]">Interest</span><span className="text-white font-medium">{b.area_of_interest || '—'}</span></div>
+                  </div>
+                  {b.mentor_response && (
+                    <div className="text-sm text-gray-200 bg-emerald-500/5 p-3.5 rounded-xl border border-emerald-500/15">
+                      <span className="text-emerald-400 text-xs font-semibold block mb-1">Your message:</span>
+                      {b.mentor_response}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => handleComplete(b.id)}
+                    disabled={bookingBusyId === b.id}
+                    className="w-full btn-primary py-2 text-xs disabled:opacity-50"
+                  >
+                    {bookingBusyId === b.id ? 'Saving...' : '🏁 Mark as Completed'}
+                  </button>
+                </div>
+              ))
             )}
           </div>
         )}
@@ -328,74 +556,20 @@ export default function MentorDashboard() {
         {/* ── Completed Sessions ── */}
         {activeTab === 'completed' && (
           <div className="space-y-4">
-            {completed.length === 0 ? (
+            {completedBookings.length === 0 ? (
               <div className="glass-card border-white/5 p-12 text-center text-gray-400 text-sm">
                 No completed sessions yet.
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {completed.map((b) => (
-                  <BookingCard key={b.id} booking={b} onAccept={handleAccept} onReject={handleReject} onComplete={handleComplete} actionLoading={actionLoading} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── Messages (Ask Mentor questions) ── */}
-        {activeTab === 'messages' && (
-          <div className="space-y-4">
-            {messages.length === 0 ? (
-              <div className="glass-card border-white/5 p-12 text-center text-gray-400 text-sm">
-                💬 No student questions yet. They'll show up here when a student asks you something.
-              </div>
-            ) : (
-              messages.map((m) => (
-                <div key={m.id} className="glass-card border-white/5 p-5 sm:p-6 space-y-3">
+              completedBookings.map((b) => (
+                <div key={b.id} className="glass-card border-white/5 p-5 sm:p-6 space-y-2">
                   <div className="flex justify-between items-start gap-3">
                     <div>
-                      <h4 className="font-display text-sm font-bold text-white">{m.subject || 'Question'}</h4>
-                      <p className="text-gray-400 text-xs mt-0.5">
-                        {m.contact_name} · {m.contact_email}
-                      </p>
+                      <h4 className="font-display text-sm font-bold text-white">{b.contact_name || 'Student'}</h4>
+                      <p className="text-gray-400 text-xs">{b.contact_email} · {formatDate(b.created_at)}</p>
                     </div>
-                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                        m.status === 'answered' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                      }`}>{m.status === 'answered' ? 'Answered' : 'Pending'}</span>
-                      {m.category && <span className="text-[10px] text-gray-500">{m.category}</span>}
-                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border bg-emerald-500/10 border-emerald-500/20 text-emerald-400">Completed</span>
                   </div>
-
-                  <div className="text-sm text-gray-200 bg-white/[0.03] p-3.5 rounded-xl border border-white/5">
-                    {m.question}
-                  </div>
-
-                  {m.status === 'answered' ? (
-                    <div className="text-sm text-gray-200 bg-emerald-500/5 p-3.5 rounded-xl border border-emerald-500/15">
-                      <span className="text-emerald-400 text-xs font-semibold block mb-1">Your reply:</span>
-                      {m.reply}
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <textarea
-                        rows={3}
-                        value={replyDrafts[m.id] || ''}
-                        onChange={(e) => setReplyDrafts((prev) => ({ ...prev, [m.id]: e.target.value }))}
-                        placeholder="Write your reply to the student..."
-                        className="w-full bg-white/[0.05] border border-white/10 hover:border-white/20 focus:border-saffron/60 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm transition-all outline-none focus:ring-2 focus:ring-saffron/20 resize-none"
-                      />
-                      <div className="flex justify-end">
-                        <button
-                          onClick={() => handleReply(m.id)}
-                          disabled={!(replyDrafts[m.id] || '').trim() || replyingId === m.id}
-                          className="btn-primary py-2 px-6 text-xs disabled:opacity-50"
-                        >
-                          {replyingId === m.id ? 'Sending...' : 'Send Reply'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               ))
             )}

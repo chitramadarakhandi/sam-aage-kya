@@ -22,6 +22,7 @@ export default function AskMentorModal({ mentor, onClose }) {
   const [form, setForm] = useState({
     name: '',
     email: '',
+    classLevel: '',
     subject: '',
     category: '',
     question: '',
@@ -41,6 +42,7 @@ export default function AskMentorModal({ mentor, onClose }) {
     if (!form.name.trim()) next.name = 'Please enter your name.'
     if (!form.email.trim()) next.email = 'Please enter your email.'
     else if (!/\S+@\S+\.\S+/.test(form.email)) next.email = 'Please enter a valid email.'
+    if (!form.classLevel) next.classLevel = 'Please select your class.'
     if (!form.subject.trim()) next.subject = 'Please enter a subject.'
     if (!form.category) next.category = 'Please select a category.'
     if (!form.question.trim()) next.question = 'Please type your question.'
@@ -59,6 +61,7 @@ export default function AskMentorModal({ mentor, onClose }) {
           mentorId: mentor.id,
           contactName: form.name,
           contactEmail: form.email,
+          classLevel: form.classLevel,
           subject: form.subject,
           category: form.category,
           question: form.question,
@@ -116,6 +119,17 @@ export default function AskMentorModal({ mentor, onClose }) {
                 <input type="email" value={form.email} onChange={set('email')} placeholder="you@example.com" className={inputClass('email')} />
                 {errors.email && <p className="text-[10px] text-rose-400 mt-1">{errors.email}</p>}
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-300 mb-1">Your Class *</label>
+              <select value={form.classLevel} onChange={set('classLevel')} className={inputClass('classLevel')}>
+                <option value="">Select your class</option>
+                <option value="10th">Class 10th</option>
+                <option value="12th">Class 12th</option>
+                <option value="Other">Other / Undergraduate</option>
+              </select>
+              {errors.classLevel && <p className="text-[10px] text-rose-400 mt-1">{errors.classLevel}</p>}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -71,6 +71,42 @@ export async function postMentorAsk(payload, authToken) {
   })
 }
 
+export async function getMentorMessages(authToken) {
+  return apiFetch('/api/mentor/messages', {
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+  })
+}
+
+// Mentor dashboard: application status + linked profile + received questions/bookings
+export async function getMentorWorkspace(authToken) {
+  return apiFetch('/api/mentor/workspace', {
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+  })
+}
+
+// Mentor accepts/declines a booking request with an optional availability message.
+export async function respondMentorBooking(id, status, response, authToken) {
+  return apiFetch(`/api/mentor/sessions/${id}/respond`, {
+    method: 'PATCH',
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    body: JSON.stringify({ status, response }),
+  })
+}
+
+// Student: fetch their own mentor booking requests + the mentor's response.
+export async function getStudentBookings(authToken) {
+  return apiFetch('/api/student/bookings', {
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+  })
+}
+
+// Admin: monitor all student -> mentor questions across the platform.
+export async function getAdminMentorMessages(authToken) {
+  return apiFetch('/api/admin/mentor-messages', {
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+  })
+}
+
 export async function patchMentorReply(id, reply, authToken) {
   return apiFetch(`/api/mentor/messages/${id}/reply`, {
     method: 'PATCH',
