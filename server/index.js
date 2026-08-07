@@ -2396,16 +2396,19 @@ app.get('/api/mentor/workspace', requireAuth(), async (req, res) => {
 
   const admin = supabaseAdmin || getSupabaseClient(req.headers.authorization)
   try {
-    // 1. Most recent application filed under this account's email.
+    // 1. All applications filed under this account's email (an applicant may
+    // re-apply after a rejection, so there can be several). The most recent
+    // one drives the status banner; any approved one can drive mentor linking.
     let application = null
+    let approvedApplications = []
     if (user.email) {
       const { data: apps } = await admin
         .from('mentor_applications')
         .select('id, name, email, status, rejection_reason, created_at')
         .eq('email', user.email)
         .order('created_at', { ascending: false })
-        .limit(1)
       application = (apps && apps[0]) || null
+      approvedApplications = (apps || []).filter((a) => a.status === 'approved')
     }
 
     // 2. Mentor profile — linked by user_id first, else claim by matching email.
@@ -2413,8 +2416,9 @@ app.get('/api/mentor/workspace', requireAuth(), async (req, res) => {
     const { data: byUser } = await admin.from('mentors').select('*').eq('user_id', user.id).maybeSingle()
     mentor = byUser || null
 
+    // 2a. Optional: claim by mentors.email, if that column has been migrated.
+    // Guarded because supabase_mentor_dashboard_migration.sql may not have run yet.
     if (!mentor && user.email) {
-      // Guarded: the email column may not be migrated yet.
       try {
         const { data: byEmail } = await admin
           .from('mentors').select('*').eq('email', user.email).is('user_id', null).maybeSingle()
@@ -2424,7 +2428,23 @@ app.get('/api/mentor/workspace', requireAuth(), async (req, res) => {
           mentor = claimed || byEmail
         }
       } catch (claimErr) {
-        console.warn('[mentor workspace] claim-by-email skipped:', claimErr.message)
+        console.warn('[mentor workspace] claim-by-email skipped (mentors.email column likely missing):', claimErr.message)
+      }
+    }
+
+    // 2b. Fallback that needs no migration: match any of this account's
+    // approved applications (mentor_applications.email already exists in
+    // every deployment) to an unclaimed mentors row with the same name.
+    if (!mentor) {
+      for (const app of approvedApplications) {
+        const { data: byName } = await admin
+          .from('mentors').select('*').eq('name', app.name).is('user_id', null).maybeSingle()
+        if (byName) {
+          const { data: claimed } = await admin
+            .from('mentors').update({ user_id: user.id }).eq('id', byName.id).select().maybeSingle()
+          mentor = claimed || byName
+          break
+        }
       }
     }
 
