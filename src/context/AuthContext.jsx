@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { resolveProfileAndRole } from '../authRoleResolver'
 
 const AuthContext = createContext(null)
 
@@ -23,7 +24,7 @@ export function AuthProvider({ children }) {
           localStorage.removeItem('aageKyaDemoSession')
           setSession(realSession)
           setUser(realSession.user)
-          fetchProfile(realSession.user.id, realSession.user)
+          fetchProfile(realSession.user.id, realSession.user, realSession.access_token)
           setLoading(false)
           return
         }
@@ -45,19 +46,29 @@ export function AuthProvider({ children }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setUser(session?.user ?? null)
-      if (session?.user) fetchProfile(session.user.id, session.user)
+      if (session?.user) fetchProfile(session.user.id, session.user, session.access_token)
       setLoading(false)
     })
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        if (localStorage.getItem('aageKyaDemoSession')) return
+        // A real, non-empty session (e.g. a magic link being clicked, or a
+        // password sign-in) always wins over a stale demo flag left behind
+        // from a previous "Demo Sandbox" click — otherwise every future real
+        // sign-in silently gets ignored and the user stays stuck on demo data.
+        if (session?.user) {
+          localStorage.removeItem('aageKyaDemoSession')
+        } else if (localStorage.getItem('aageKyaDemoSession')) {
+          // No real session and we're actively in the demo sandbox — ignore
+          // this (e.g. a spurious signed-out ping) so the demo profile stays.
+          return
+        }
 
         setSession(session)
         setUser(session?.user ?? null)
         if (session?.user) {
-          fetchProfile(session.user.id, session.user)
+          fetchProfile(session.user.id, session.user, session.access_token)
         } else {
           setProfile(null)
         }
@@ -67,60 +78,8 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  async function fetchProfile(userId, sessionUser) {
-    let { data } = await supabase
-      .from('students')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle()
-
-    if (!data && sessionUser) {
-      const userType = sessionUser.user_metadata?.user_type || 'class12'
-      let role = 'student'
-      let class_level = 'class12'
-      if (userType === 'class10') {
-        role = 'student'
-        class_level = 'class10'
-      } else if (userType === 'other') {
-        role = 'other'
-        class_level = 'other'
-      } else if (userType === 'admin') {
-        role = 'admin'
-        class_level = 'other'
-      } else if (userType === 'mentor') {
-        role = 'mentor'
-        class_level = 'other'
-      }
-
-      let { data: insertedData, error } = await supabase
-        .from('students')
-        .insert({
-          id: userId,
-          role,
-          class_level,
-          full_name: '',
-        })
-        .select()
-        .maybeSingle()
-
-      if (error && (error.code === 'PGRST204' || error.code === '42703' || error.message?.includes('class_level'))) {
-        const { data: retryData, error: retryError } = await supabase
-          .from('students')
-          .insert({
-            id: userId,
-            role,
-            full_name: '',
-          })
-          .select()
-          .maybeSingle()
-        insertedData = retryData
-        error = retryError
-      }
-
-      if (!error && insertedData) {
-        data = insertedData
-      }
-    }
+  async function fetchProfile(userId, sessionUser, accessToken) {
+    const data = await resolveProfileAndRole(userId, sessionUser, accessToken)
     setProfile(data)
   }
 
@@ -167,7 +126,7 @@ export function AuthProvider({ children }) {
 
   async function refreshProfile() {
     if (user && !localStorage.getItem('aageKyaDemoSession')) {
-      await fetchProfile(user.id)
+      await fetchProfile(user.id, user, session?.access_token)
     }
   }
 

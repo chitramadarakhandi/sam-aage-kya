@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
+import { motion } from 'framer-motion'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -211,16 +212,38 @@ export default function Landing() {
       {/* ── HERO ── */}
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
 
-        {/* Layered ambient background */}
+        {/* Layered ambient background — premium blue/purple/pink/orange mesh
+            with slow-drifting glow orbs, inspired by the reference design. */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden">
-          {/* Main mesh gradient */}
-          <div className="absolute inset-0 bg-mesh opacity-80" />
-          {/* Big saffron orb top-right */}
-          <div className="absolute -top-40 -right-40 w-[700px] h-[700px] bg-saffron/10 rounded-full blur-[140px] animate-float-slow" />
-          {/* Subtle blue orb bottom-left */}
-          <div className="absolute -bottom-20 -left-20 w-[500px] h-[500px] bg-blue-600/8 rounded-full blur-[120px] animate-float" style={{ animationDelay: '2s' }} />
-          {/* Center glow */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] bg-saffron/4 rounded-full blur-[100px]" />
+          <div className="absolute inset-0 bg-mesh-brand opacity-90" />
+          <motion.div
+            className="absolute -top-40 -right-32 w-[700px] h-[700px] rounded-full blur-[140px]"
+            style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.22), transparent 70%)' }}
+            animate={{ x: [0, 30, 0], y: [0, -20, 0] }}
+            transition={{ duration: 14, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          <motion.div
+            className="absolute -bottom-24 -left-24 w-[550px] h-[550px] rounded-full blur-[130px]"
+            style={{ background: 'radial-gradient(circle, rgba(79,124,255,0.18), transparent 70%)' }}
+            animate={{ x: [0, -25, 0], y: [0, 25, 0] }}
+            transition={{ duration: 16, repeat: Infinity, ease: 'easeInOut', delay: 1 }}
+          />
+          <motion.div
+            className="absolute top-1/3 right-1/4 w-[400px] h-[400px] rounded-full blur-[110px]"
+            style={{ background: 'radial-gradient(circle, rgba(236,72,153,0.14), transparent 70%)' }}
+            animate={{ scale: [1, 1.15, 1] }}
+            transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          {/* Subtle floating particles */}
+          {[...Array(10)].map((_, i) => (
+            <motion.span
+              key={i}
+              className="absolute w-1 h-1 rounded-full bg-white/40"
+              style={{ left: `${8 + i * 9}%`, top: `${15 + (i % 5) * 15}%` }}
+              animate={{ y: [0, -22, 0], opacity: [0.2, 0.7, 0.2] }}
+              transition={{ duration: 5 + (i % 4), repeat: Infinity, ease: 'easeInOut', delay: i * 0.4 }}
+            />
+          ))}
         </div>
 
         {/* Dot grid */}
@@ -233,25 +256,33 @@ export default function Landing() {
         />
 
         {/* Top accent line */}
-        <div className="absolute top-16 left-0 right-0 h-px bg-gradient-to-r from-transparent via-saffron/30 to-transparent" />
+        <div className="absolute top-16 left-0 right-0 h-px" style={{ backgroundImage: 'linear-gradient(90deg, transparent, rgba(168,85,247,0.35), rgba(236,72,153,0.25), transparent)' }} />
 
         <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
 
           {/* Live badge */}
-          <div className="inline-flex items-center gap-2.5 bg-saffron/10 border border-saffron/25 rounded-full px-5 py-2 mb-10 animate-fade-in">
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="inline-flex items-center gap-2.5 bg-white/[0.06] border border-white/10 rounded-full px-5 py-2 mb-10 backdrop-blur-sm"
+          >
             <span className="relative flex h-2.5 w-2.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-saffron opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-saffron" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-400" />
             </span>
-            <span className="text-saffron text-sm font-semibold tracking-wide">
+            <span className="text-sm font-semibold tracking-wide bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(90deg,#93C5FD,#F0ABFC)' }}>
               Free for Class 10 &amp; 12 students &amp; graduates
             </span>
-          </div>
+          </motion.div>
 
           {/* Headline */}
-          <h1
+          <motion.h1
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.1 }}
             className="font-display font-black leading-[1.08] mb-6 text-white text-balance"
-            style={{ fontSize: 'clamp(2.6rem, 7.5vw, 5.5rem)', animationDelay: '50ms' }}
+            style={{ fontSize: 'clamp(2.6rem, 7.5vw, 5.5rem)' }}
           >
             Board results are out.{' '}
             <span className="relative inline-block mt-1">
@@ -268,55 +299,61 @@ export default function Landing() {
                 />
                 <defs>
                   <linearGradient id="underlineGrad" x1="0" y1="0" x2="200" y2="0" gradientUnits="userSpaceOnUse">
-                    <stop offset="0%" stopColor="#FF6B00" />
-                    <stop offset="100%" stopColor="#FF8C33" />
+                    <stop offset="0%" stopColor="#4F7CFF" />
+                    <stop offset="50%" stopColor="#A855F7" />
+                    <stop offset="100%" stopColor="#EC4899" />
                   </linearGradient>
                 </defs>
               </svg>
             </span>
-          </h1>
+          </motion.h1>
 
           {/* Subheadline */}
-          <p
-            className="text-gray-300 max-w-2xl mx-auto mb-10 leading-relaxed animate-slide-up"
-            style={{ fontSize: 'clamp(1rem, 2.5vw, 1.2rem)', animationDelay: '120ms' }}
+          <motion.p
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            className="text-gray-300 max-w-2xl mx-auto mb-10 leading-relaxed"
+            style={{ fontSize: 'clamp(1rem, 2.5vw, 1.2rem)' }}
           >
             Honest, personalized guidance for students who have{' '}
             <span className="text-white font-semibold">no one to ask</span>.
             <br className="hidden sm:block" />
             No coaching class pitch. No sponsored rankings. Just the truth.
-          </p>
+          </motion.p>
 
           {/* CTA group */}
-          <div
-            className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-14 animate-slide-up"
-            style={{ animationDelay: '200ms' }}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+            className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-14"
           >
             <Link
-              to="/class10/onboarding"
+              to="/explore"
               id="hero-cta-10"
-              className="btn-primary text-base px-8 py-4 animate-pulse-glow font-semibold tracking-wide flex items-center gap-2"
+              className="btn-primary text-base px-8 py-4 font-semibold tracking-wide flex items-center gap-2"
             >
-              <span>10th Passer</span>
-              <span className="text-xs bg-black/20 px-2 py-0.5 rounded">Stream selection</span>
+              <span>🎯 Multiple-Choice Quiz</span>
+              <span className="text-xs bg-black/20 px-2 py-0.5 rounded">Explore Paths</span>
             </Link>
             <Link
-              to="/class12/onboarding"
+              to="/onboarding"
               id="hero-cta-12"
-              className="btn-primary text-base px-8 py-4 animate-pulse-glow font-semibold tracking-wide flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 border-purple-500/30 hover:from-purple-500 hover:to-indigo-500 shadow-purple-500/20"
+              className="text-white font-semibold text-base px-8 py-4 rounded-xl transition-all duration-300 shadow-lg hover:shadow-glow-brand hover:scale-105 active:scale-95 inline-flex items-center gap-2"
+              style={{ backgroundImage: 'linear-gradient(90deg, #A855F7, #EC4899)' }}
             >
-              <span>12th Passer</span>
-              <span className="text-xs bg-black/20 px-2 py-0.5 rounded">College & Career</span>
+              <span>✍️ Express In Own Words</span>
+              <span className="text-xs bg-black/20 px-2 py-0.5 rounded">Get Started</span>
             </Link>
-            <Link to="/mentors" className="btn-outline text-base px-8 py-4 font-semibold">
-              Talk to a Mentor Free
-            </Link>
-          </div>
+          </motion.div>
 
           {/* Trust row */}
-          <div
-            className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-gray-500 text-xs mb-20 animate-fade-in"
-            style={{ animationDelay: '300ms' }}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.6, delay: 0.4 }}
+            className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-gray-500 text-xs mb-20"
           >
             <span className="flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
@@ -333,7 +370,7 @@ export default function Landing() {
             </span>
             <span className="w-px h-3 bg-white/10" />
             <span className="flex items-center gap-1.5">🇮🇳 Built for India</span>
-          </div>
+          </motion.div>
 
           {/* Stats grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 max-w-3xl mx-auto">
@@ -370,7 +407,7 @@ export default function Landing() {
         <div className="max-w-6xl mx-auto relative z-10">
 
           <div className="text-center mb-16">
-            <div className="inline-block bg-saffron/10 border border-saffron/20 rounded-full px-4 py-1.5 text-saffron text-xs font-semibold tracking-widest uppercase mb-4">
+            <div className="inline-block bg-white/[0.06] border border-white/10 rounded-full px-4 py-1.5 text-xs font-semibold tracking-widest uppercase mb-4 bg-clip-text text-transparent" style={{ backgroundImage: 'linear-gradient(90deg,#93C5FD,#F0ABFC)', WebkitBackgroundClip: 'text' }}>
               How it works
             </div>
             <h2 className="font-display text-4xl md:text-5xl font-bold text-white mb-4">

@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   getPathwayStartQuestions,
   postPathwayNextQuestions,
   postPathwayRecommend,
+  getMentors,
 } from '../api'
 import { STATE_NAMES, citiesForState } from '../data/indiaLocations'
 import { formatCityState } from '../utils/location'
+import CourseOverlayPanel from '../components/CourseOverlayPanel'
 
 // ─── Small UI helpers ─────────────────────────────────────────────────────────
 
@@ -45,9 +47,17 @@ const DIFFICULTY_LABEL = { low: 'Beginner-friendly', moderate: 'Moderate', high:
 
 // ─── Result card ────────────────────────────────────────────────────────────
 
-function OptionCard({ opt, index, compareOn, isCompared, onToggleCompare }) {
+function OptionCard({ opt, index, compareOn, isCompared, onToggleCompare, classLevel, formData }) {
   const [open, setOpen] = useState(index === 0)
+  const [showCoursePanel, setShowCoursePanel] = useState(false)
   const isStream = opt.type === 'stream'
+
+  // Build the same { option, formData } shape the Get Started (Result.jsx)
+  // flow passes to /roadmap, so "View Roadmap" here reuses that existing,
+  // unmodified roadmap generator instead of building a parallel one.
+  const roadmapOption = { path: opt.name, honest_take: opt.why_this_fits || opt.honest_note }
+  const roadmapFormData = { ...formData, classLevel }
+
   return (
     <div className={`glass-card rounded-2xl overflow-hidden animate-slide-up ${isCompared ? 'border-saffron/50 ring-1 ring-saffron/30' : 'border-white/10'}`} style={{ animationDelay: `${index * 80}ms` }}>
       <div className="flex items-start">
@@ -125,6 +135,42 @@ function OptionCard({ opt, index, compareOn, isCompared, onToggleCompare }) {
               )}
             </>
           )}
+
+          {/* Course deep-dive — pros / challenges / videos (same panel used
+              on the Get Started results page), toggled per-card. */}
+          <button
+            onClick={() => setShowCoursePanel((v) => !v)}
+            className={`w-full flex items-center justify-center gap-1.5 text-xs font-semibold px-3 py-2.5 rounded-xl border transition-all ${
+              showCoursePanel
+                ? 'bg-saffron/15 border-saffron text-saffron'
+                : 'bg-white/5 border-white/10 text-gray-400 hover:border-saffron/40 hover:text-saffron'
+            }`}
+          >
+            <span>📚</span> {showCoursePanel ? 'Close deep-dive' : 'Explore pros, challenges & videos'}
+          </button>
+          <CourseOverlayPanel
+            path={opt.name}
+            isOpen={showCoursePanel}
+            onClose={() => setShowCoursePanel(false)}
+          />
+
+          {/* Roadmap + mentor CTAs — reuse the exact existing routes/flows
+              used by the Get Started results page (no new backend logic). */}
+          <div className="flex flex-col sm:flex-row gap-2 pt-1">
+            <Link
+              to={`/${classLevel}/roadmap`}
+              state={{ option: roadmapOption, formData: roadmapFormData }}
+              className="btn-primary flex-1 py-3 text-sm flex items-center justify-center gap-2"
+            >
+              <span>View 4-Year Roadmap</span>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+            <Link to="/mentors" className="btn-outline flex-1 py-3 text-sm flex items-center justify-center gap-2">
+              💬 Talk to a Mentor
+            </Link>
+          </div>
         </div>
       )}
     </div>
@@ -246,6 +292,35 @@ function KeyVal({ label, value }) {
   )
 }
 
+// ─── Matched mentor teaser ──────────────────────────────────────────────────
+// Same card style + logic as the Get Started results page (src/pages/Result.jsx)
+// — surfaces a mentor whose stream matches the student's, linking to the
+// existing, unmodified Mentors page/booking flow.
+function MentorTeaserBox({ mentor }) {
+  if (!mentor) return null
+  const border = mentor.border || 'border-blue-500/25'
+  const initialsBg = mentor.initials_bg || 'bg-blue-500/20 text-blue-300'
+
+  return (
+    <div
+      className={`glass-card p-6 sm:p-7 flex flex-col sm:flex-row items-start sm:items-center gap-5 animate-slide-up border ${border}`}
+      style={{ background: 'linear-gradient(135deg, rgba(255,107,0,0.06) 0%, rgba(15,23,42,0.8) 100%)' }}
+    >
+      <div className={`w-14 h-14 rounded-2xl ${initialsBg} flex items-center justify-center font-display font-bold text-lg flex-shrink-0 border border-current/10`}>
+        {mentor.initials}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-saffron text-[10px] font-bold uppercase tracking-widest mb-1">Recommended Mentor For You</p>
+        <h4 className="text-white text-base font-display font-bold leading-tight">{mentor.name}</h4>
+        <p className="text-gray-400 text-xs mt-0.5">{mentor.degree} · {mentor.college}</p>
+      </div>
+      <Link to="/mentors" className="btn-primary py-2.5 px-5 text-xs flex items-center justify-center gap-2 flex-shrink-0 w-full sm:w-auto">
+        Book Mentor →
+      </Link>
+    </div>
+  )
+}
+
 // ─── Compare modal (side-by-side) ─────────────────────────────────────────────
 
 function CompareModal({ options, onClose }) {
@@ -327,6 +402,7 @@ export default function Explore() {
   const [compareIds, setCompareIds] = useState([])
   const [showCompare, setShowCompare] = useState(false)
   const [judging, setJudging] = useState(false)
+  const [matchedMentor, setMatchedMentor] = useState(null)
 
   // Load broad questions whenever classLevel changes (setup screen toggle).
   // Clear broadQuestions FIRST so the "Start" button (disabled when the list
@@ -339,6 +415,26 @@ export default function Explore() {
       .then((d) => setBroadQuestions(d.questions || []))
       .catch(() => setError('Could not load questions. Is the server running?'))
   }, [classLevel])
+
+  // Match a mentor for the results view — same matching approach as the
+  // Get Started results page (src/pages/Result.jsx): prefer an available
+  // mentor whose stream_category matches, else any available mentor.
+  // Purely additive display info; does not affect the quiz/recommend flow.
+  useEffect(() => {
+    if (phase !== 'results') return
+    getMentors()
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        const match = data.find((m) => {
+          if (classLevel === 'class10') {
+            return m.stream_category === 'Class 10 / Stream Selection' && m.available
+          }
+          return m.stream_category === stream && m.available
+        }) || (classLevel === 'class12' ? data.find((m) => m.available) : null)
+        setMatchedMentor(match || null)
+      })
+      .catch(() => setMatchedMentor(null))
+  }, [phase, classLevel, stream])
 
   const answerCurrent = (answer) => {
     const q = questions[idx]
@@ -663,6 +759,10 @@ export default function Explore() {
               </div>
             )}
 
+            {/* Matched mentor teaser — same matching logic + card style as the
+                Get Started (Result.jsx) flow, wired to the existing /mentors page. */}
+            {matchedMentor && <MentorTeaserBox mentor={matchedMentor} />}
+
             <div className="space-y-3">
               {result.options.map((opt, i) => (
                 <OptionCard
@@ -672,6 +772,8 @@ export default function Explore() {
                   compareOn={compareOn}
                   isCompared={compareIds.includes(opt.id)}
                   onToggleCompare={toggleCompare}
+                  classLevel={classLevel}
+                  formData={{ marks, stream, state, city, incomeRange }}
                 />
               ))}
             </div>

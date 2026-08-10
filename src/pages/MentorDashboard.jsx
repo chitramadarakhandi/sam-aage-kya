@@ -15,6 +15,24 @@ function formatDate(ts) {
 
 const CLASS_LABELS = { '10th': 'Class 10th', '12th': 'Class 12th', Other: 'Other / UG' }
 
+// ─── Demo sandbox banner ───────────────────────────────────────────────────────
+// Makes it unmistakable when the dashboard is showing hardcoded sandbox data
+// instead of a real mentor's own data — this is NOT your real mentor account.
+function DemoSandboxBanner() {
+  return (
+    <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4 mb-6 flex items-start gap-3">
+      <span className="text-2xl flex-shrink-0">🧪</span>
+      <div>
+        <p className="text-indigo-300 text-sm font-bold">You're viewing the Demo Sandbox.</p>
+        <p className="text-gray-400 text-xs mt-0.5">
+          This is sample data, not a real mentor account. To see your own student questions and bookings,
+          sign out and sign in with your real mentor email and password.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ─── Application status banner ────────────────────────────────────────────────
 // Shows a new/returning mentor whether their application was accepted, rejected,
 // or is still under review — right inside the dashboard.
@@ -246,8 +264,9 @@ function BookingCard({ booking, draft, onDraftChange, onRespond, busy }) {
 }
 
 export default function MentorDashboard() {
-  const { user, profile, session, loading: authLoading } = useAuth()
+  const { user, session, loading: authLoading } = useAuth()
   const navigate = useNavigate()
+  const isDemoSandbox = session?.access_token === 'demo-mentor-token'
 
   const [mentorProfile, setMentorProfile] = useState(null)
   const [application, setApplication] = useState(null)
@@ -267,11 +286,17 @@ export default function MentorDashboard() {
   const [savingSettings, setSavingSettings] = useState(false)
   const [settingsSaved, setSettingsSaved] = useState(false)
 
-  // Guard: only mentors here.
+  // Guard: must be signed in. We deliberately do NOT bounce non-mentor
+  // `profile.role` values away here — a real mentor's students.role often
+  // still reads 'student' on first login and only flips to 'mentor' once
+  // getMentorWorkspace() below links their account to an approved mentor
+  // profile by email. Kicking them out based on the stale local role was
+  // sending real mentors back to "/" and making it look like login failed.
+  // Anyone with no mentor application at all still just sees the
+  // "Apply to Mentor" screen further down, so this stays safe for students.
   useEffect(() => {
     if (!authLoading && !user) navigate('/')
-    if (!authLoading && profile && profile.role !== 'mentor') navigate('/')
-  }, [user, profile, authLoading, navigate])
+  }, [user, authLoading, navigate])
 
   // Load application status + linked profile + received student questions/bookings.
   const loadData = useCallback(async () => {
@@ -434,6 +459,8 @@ export default function MentorDashboard() {
     <main className="pt-24 pb-16 min-h-screen px-4 sm:px-6 lg:px-8 font-sans">
       <div className="max-w-4xl mx-auto">
 
+        {isDemoSandbox && <DemoSandboxBanner />}
+
         {/* Header */}
         <div className="flex items-center gap-4 mb-6">
           <div className={`w-14 h-14 rounded-2xl ${mentorProfile.initials_bg || 'bg-saffron/20 text-saffron'} flex items-center justify-center font-display font-bold text-lg flex-shrink-0`}>
@@ -446,7 +473,7 @@ export default function MentorDashboard() {
         </div>
 
         {/* Approval / status banner */}
-        <ApplicationBanner application={application} linked={true} />
+        {!isDemoSandbox && <ApplicationBanner application={application} linked={true} />}
 
         {/* Tab switcher */}
         <div className="flex flex-wrap gap-2 mb-6">

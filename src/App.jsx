@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
@@ -28,6 +29,14 @@ import MentorApplication from './pages/MentorApplication'
 import MyMentorRequests from './pages/MyMentorRequests'
 import Explore from './pages/Explore'
 import OnlineEducation from './pages/OnlineEducation'
+
+// AI Career Intelligence Hub — new, fully isolated flagship module.
+// Does not touch the existing recommendation workflow, auth, DB schema,
+// multi-agent system, or RAG pipeline; it's a standalone data+UI layer
+// under src/data/careerIntel and src/pages/careerIntel.
+import CareerIntelligenceHub from './pages/careerIntel/CareerIntelligenceHub'
+import CareerReport from './pages/careerIntel/CareerReport'
+import CareerCompare from './pages/careerIntel/CareerCompare'
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { user, profile, loading } = useAuth()
@@ -68,50 +77,81 @@ function ScrollToTop() {
   return null
 }
 
+// Purely visual page-transition wrapper — fades/slides each route in on
+// navigation using Framer Motion. Wraps the exact same <Routes> tree with
+// no changes to paths, guards, or protected-route logic.
+function PageTransition({ children }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+      className="flex-1 pb-bottom-nav"
+    >
+      {children}
+    </motion.div>
+  )
+}
+
 function AnimatedRoutes() {
   const location = useLocation()
   return (
-    <div key={location.pathname} className="page-enter flex-1">
-      <Routes location={location}>
-        <Route path="/"                  element={<Landing />} />
-        
-        {/* Protected Student Routes */}
-        <Route path="/onboarding"        element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
-        <Route path="/:classLevel/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
-        <Route path="/result"            element={<ProtectedRoute><Result /></ProtectedRoute>} />
-        <Route path="/:classLevel/result" element={<ProtectedRoute><Result /></ProtectedRoute>} />
-        <Route path="/roadmap"           element={<ProtectedRoute><Roadmap /></ProtectedRoute>} />
-        <Route path="/:classLevel/roadmap" element={<ProtectedRoute><Roadmap /></ProtectedRoute>} />
-        <Route path="/profile"           element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/dashboard"         element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-        <Route path="/result/print"      element={<ProtectedRoute><PrintReport /></ProtectedRoute>} />
-        <Route path="/:classLevel/result/print" element={<ProtectedRoute><PrintReport /></ProtectedRoute>} />
-        <Route path="/scenarios"         element={<ProtectedRoute><Scenarios /></ProtectedRoute>} />
-        <Route path="/my-mentor-requests" element={<ProtectedRoute><MyMentorRequests /></ProtectedRoute>} />
-        
-        {/* Protected Mentor Routes */}
-        <Route path="/mentor-dashboard"  element={<ProtectedRoute allowedRoles={['mentor']}><MentorDashboard /></ProtectedRoute>} />
-        
-        {/* Protected Admin Routes */}
-        <Route path="/admin-dashboard"   element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
-        
-        {/* Public Routes */}
-        <Route path="/explore"           element={<Explore />} />
-        <Route path="/mentors"           element={<Mentors />} />
-        <Route path="/official-readiness" element={<OfficialReadiness />} />
-        <Route path="/qa"                element={<QABoard />} />
-        <Route path="/chat"              element={<Chatbot />} />
+    <AnimatePresence mode="wait">
+      <PageTransition key={location.pathname}>
+        <Routes location={location}>
+          <Route path="/"                  element={<Landing />} />
+          
+          {/* Protected Student Routes */}
+          <Route path="/onboarding"        element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
+          <Route path="/:classLevel/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
+          <Route path="/result"            element={<ProtectedRoute><Result /></ProtectedRoute>} />
+          <Route path="/:classLevel/result" element={<ProtectedRoute><Result /></ProtectedRoute>} />
+          <Route path="/roadmap"           element={<ProtectedRoute><Roadmap /></ProtectedRoute>} />
+          <Route path="/:classLevel/roadmap" element={<ProtectedRoute><Roadmap /></ProtectedRoute>} />
+          <Route path="/profile"           element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/dashboard"         element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/result/print"      element={<ProtectedRoute><PrintReport /></ProtectedRoute>} />
+          <Route path="/:classLevel/result/print" element={<ProtectedRoute><PrintReport /></ProtectedRoute>} />
+          <Route path="/scenarios"         element={<ProtectedRoute><Scenarios /></ProtectedRoute>} />
+          <Route path="/my-mentor-requests" element={<ProtectedRoute><MyMentorRequests /></ProtectedRoute>} />
+          
+          {/* Protected Mentor Routes */}
+          {/* No allowedRoles gate here: a real mentor's local `students.role`
+              often still reads 'student' the first time they log in (it only
+              flips to 'mentor' once /api/mentor/workspace links their account
+              to an approved mentor profile by email). Gating on the stale
+              local role bounced real mentors back to /dashboard before that
+              linking could happen. MentorDashboard itself shows an
+              "apply to mentor" screen for anyone with no mentor application. */}
+          <Route path="/mentor-dashboard"  element={<ProtectedRoute><MentorDashboard /></ProtectedRoute>} />
+          
+          {/* Protected Admin Routes */}
+          <Route path="/admin-dashboard"   element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
+          
+          {/* Public Routes */}
+          <Route path="/explore"           element={<Explore />} />
+          <Route path="/mentors"           element={<Mentors />} />
+          <Route path="/official-readiness" element={<OfficialReadiness />} />
+          <Route path="/qa"                element={<QABoard />} />
+          <Route path="/chat"              element={<Chatbot />} />
 
-        {/* New Public Routes */}
-        <Route path="/competitive-exams" element={<CompetitiveExams />} />
-        <Route path="/online-education"  element={<OnlineEducation />} />
-        <Route path="/study-abroad"      element={<StudyAbroad />} />
-        <Route path="/career-pipeline"   element={<CareerPipeline />} />
-        <Route path="/scholarships"      element={<Scholarships />} />
-        <Route path="/college/:id"        element={<CollegeOverview />} />
-        <Route path="/mentor-apply"       element={<MentorApplication />} />
-      </Routes>
-    </div>
+          {/* New Public Routes */}
+          <Route path="/competitive-exams" element={<CompetitiveExams />} />
+          <Route path="/online-education"  element={<OnlineEducation />} />
+          <Route path="/study-abroad"      element={<StudyAbroad />} />
+          <Route path="/career-pipeline"   element={<CareerPipeline />} />
+          <Route path="/scholarships"      element={<Scholarships />} />
+          <Route path="/college/:id"        element={<CollegeOverview />} />
+          <Route path="/mentor-apply"       element={<MentorApplication />} />
+
+          {/* AI Career Intelligence Hub — new flagship module, fully isolated */}
+          <Route path="/career-intel"          element={<CareerIntelligenceHub />} />
+          <Route path="/career-intel/compare"  element={<CareerCompare />} />
+          <Route path="/career-intel/:id"      element={<CareerReport />} />
+        </Routes>
+      </PageTransition>
+    </AnimatePresence>
   )
 }
 

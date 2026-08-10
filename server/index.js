@@ -3299,6 +3299,31 @@ app.get('/api/admin/mentor-messages', requireRole('admin'), async (req, res) => 
   }
 })
 
+// GET /api/admin/users — Fetch all registered students/users for the admin panel.
+// Uses the service-role client so it bypasses the students_self_rw RLS policy
+// (which otherwise limits reads to auth.uid() = id, i.e. only your own row —
+// that's why the admin Users tab was previously showing 0 / incorrect counts).
+app.get('/api/admin/users', requireRole('admin'), async (req, res) => {
+  if (!supabaseAdmin) {
+    return res.status(503).json({
+      error: 'SERVICE_ROLE_KEY_MISSING',
+      message: 'Set SUPABASE_SERVICE_ROLE_KEY in server/.env to list all users as admin.',
+    })
+  }
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('students')
+      .select('id, full_name, role, class_level, created_at, marks, stream, state')
+      .order('created_at', { ascending: false })
+      .limit(500)
+    if (error) throw error
+    res.json({ users: data || [] })
+  } catch (err) {
+    console.error('Admin users fetch error:', err.message)
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: err.message })
+  }
+})
+
 // GET /api/admin/mentor-applications — Fetch all applications
 app.get('/api/admin/mentor-applications', requireRole('admin'), async (req, res) => {
   const client = supabaseAdmin || supabase

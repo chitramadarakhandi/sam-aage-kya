@@ -42,11 +42,18 @@
 @layer components {
   /* ── Premium Button System ─────────────────────────────────── */
   .btn-primary {
-    @apply bg-gradient-to-r from-saffron to-saffron-light text-white font-semibold px-6 py-3 rounded-xl
-           hover:from-saffron-light hover:to-saffron transition-all duration-300
-           shadow-lg hover:shadow-saffron hover:shadow-xl hover:scale-105 active:scale-95
+    @apply text-white font-semibold px-6 py-3 rounded-xl
+           transition-all duration-300
+           shadow-lg hover:shadow-glow-brand hover:shadow-xl hover:scale-105 active:scale-95
            w-full sm:w-auto inline-flex items-center justify-center gap-2
            relative overflow-hidden;
+    background-image: linear-gradient(90deg, #4F7CFF 0%, #A855F7 50%, #EC4899 85%, #FF6B00 120%);
+    background-size: 160% 100%;
+    background-position: 0% 0%;
+  }
+
+  .btn-primary:hover {
+    background-position: 100% 0%;
   }
 
   .btn-primary::before {
@@ -86,7 +93,7 @@
   /* ── Glassmorphism Cards ────────────────────────────────────── */
   .glass-card {
     @apply bg-white/[0.04] backdrop-blur-md border border-white/[0.08] rounded-2xl
-           hover:border-saffron/30 hover:bg-white/[0.06] transition-all duration-300
+           hover:border-purple-400/30 hover:bg-white/[0.06] transition-all duration-300
            shadow-card;
   }
 
@@ -109,7 +116,7 @@
     left: 0;
     right: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255,107,0,0.4), transparent);
+    background: linear-gradient(90deg, transparent, rgba(168,85,247,0.5), rgba(236,72,153,0.4), transparent);
   }
 
   .glass-card-glow {
@@ -149,7 +156,15 @@
     @apply font-display text-3xl sm:text-4xl md:text-5xl font-bold text-light-gray;
   }
 
+  /* Primary brand gradient — blue → purple → pink → orange, per the
+     premium visual system. gradient-text-saffron below preserves the
+     original saffron-only look for spots that still want it. */
   .gradient-text {
+    @apply bg-gradient-to-r from-blue-400 via-purple-400 to-saffron bg-clip-text text-transparent;
+    background-image: linear-gradient(90deg, #60A5FA 0%, #A855F7 45%, #EC4899 75%, #FF8C33 100%);
+  }
+
+  .gradient-text-saffron {
     @apply bg-gradient-to-r from-saffron via-saffron-light to-amber-400 bg-clip-text text-transparent;
   }
 
@@ -321,6 +336,33 @@
       radial-gradient(at 50% 80%, hsla(215, 98%, 61%, 0.06) 0px, transparent 50%),
       radial-gradient(at 90% 70%, hsla(354, 98%, 61%, 0.04) 0px, transparent 50%),
       radial-gradient(at 10% 60%, hsla(160, 80%, 50%, 0.04) 0px, transparent 50%);
+  }
+
+  /* Premium blue/purple/pink/orange ambient mesh — the primary hero and
+     section background used across the redesigned pages. */
+  .bg-mesh-brand {
+    background-image:
+      radial-gradient(at 15% 20%, hsla(228, 96%, 65%, 0.14) 0px, transparent 55%),
+      radial-gradient(at 85% 15%, hsla(271, 91%, 65%, 0.12) 0px, transparent 55%),
+      radial-gradient(at 90% 75%, hsla(330, 81%, 60%, 0.1) 0px, transparent 55%),
+      radial-gradient(at 15% 85%, hsla(25, 98%, 58%, 0.08) 0px, transparent 55%);
+  }
+
+  /* Bottom padding reserved for the floating bottom navigation bar so page
+     content never sits underneath it. */
+  .pb-bottom-nav {
+    padding-bottom: 6.5rem;
+  }
+
+  /* Hides the scrollbar on the floating nav's inner scroll track (used as a
+     safety net so a wide nav never gets clipped off-center by the browser's
+     overflow-x: hidden — it scrolls internally instead). */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 
   .bg-grid-pattern {

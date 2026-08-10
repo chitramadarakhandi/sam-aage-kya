@@ -21,6 +21,15 @@ export default {
           dark: '#CC5500',
         },
         'light-gray': '#F8FAFC',
+        // Premium accent palette for the blue → purple → pink → orange
+        // gradient system. Kept alongside (not replacing) saffron so
+        // existing saffron-based classes keep working unchanged.
+        electric: {
+          blue: '#4F7CFF',
+          purple: '#A855F7',
+          pink: '#EC4899',
+          orange: '#FF6B00',
+        },
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
@@ -30,6 +39,9 @@ export default {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
         'gradient-conic': 'conic-gradient(from 180deg at 50% 50%, var(--tw-gradient-stops))',
         'mesh-gradient': 'radial-gradient(at 27% 37%, hsla(215, 98%, 61%, 0.08) 0px, transparent 50%), radial-gradient(at 97% 21%, hsla(25, 98%, 72%, 0.12) 0px, transparent 50%), radial-gradient(at 52% 99%, hsla(354, 98%, 61%, 0.04) 0px, transparent 50%), radial-gradient(at 10% 29%, hsla(256, 96%, 67%, 0.06) 0px, transparent 50%)',
+        // Premium blue -> purple -> pink -> orange brand gradient, used for
+        // headline text, primary CTA, and active-nav glow across the app.
+        'brand-gradient': 'linear-gradient(90deg, #4F7CFF 0%, #A855F7 45%, #EC4899 75%, #FF6B00 100%)',
       },
       animation: {
         'fade-in': 'fadeIn 0.6s ease-out forwards',
@@ -114,6 +126,7 @@ export default {
         'glow-saffron': '0 0 40px rgba(255,107,0,0.15)',
         'glow-purple': '0 0 40px rgba(139,92,246,0.15)',
         'glow-blue': '0 0 40px rgba(59,130,246,0.15)',
+        'glow-brand': '0 0 30px rgba(168,85,247,0.25), 0 0 60px rgba(236,72,153,0.12)',
       },
     },
   },

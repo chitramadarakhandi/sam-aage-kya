@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { Navigate } from 'react-router-dom'
-import { supabase } from '../supabaseClient'
 import { getAdminMentorMessages } from '../api'
 
 export default function AdminDashboard() {
@@ -45,14 +44,33 @@ export default function AdminDashboard() {
       const queriesRes = await getAdminMentorMessages(session?.access_token)
       const queriesData = queriesRes.ok ? await queriesRes.json() : { messages: [] }
 
-      // Fetch users from Supabase directly
-      const { data: usersData } = await supabase.from('students').select('id, full_name, role, class_level, created_at, marks, stream, state').order('created_at', { ascending: false }).limit(100)
+      // Fetch users via the backend admin endpoint (service-role key) instead
+      // of querying Supabase directly from the browser — the students table's
+      // RLS policy ("students_self_rw") only allows a user to read their OWN
+      // row, so a direct client-side query always returned 0/1 rows here.
+      const usersRes = await fetch('/api/admin/users', { headers })
+      let usersData = { users: [] }
+      if (usersRes.ok) {
+        usersData = await usersRes.json()
+      } else {
+        // Surface the real reason instead of silently showing an empty list —
+        // e.g. 404 means the backend hasn't been redeployed with this route
+        // yet (Render's autoDeploy is off for this project), 503 means
+        // SUPABASE_SERVICE_ROLE_KEY isn't set on the server.
+        const errBody = await usersRes.json().catch(() => ({}))
+        console.error('Failed to load users:', usersRes.status, errBody)
+        setErrorMsg(
+          usersRes.status === 404
+            ? 'Users list unavailable: the backend needs to be redeployed with the latest changes.'
+            : errBody.message || `Failed to load users (HTTP ${usersRes.status}).`
+        )
+      }
 
       setAnalytics(analyticsData)
       setApplications(appsData.applications || [])
       setBookings(bookingsData.bookings || [])
       setQueries(queriesData.messages || [])
-      setUsers(usersData || [])
+      setUsers(usersData.users || [])
     } catch (err) {
       console.error('Error fetching admin data:', err)
       setErrorMsg('Failed to load dashboard data. Please try again.')

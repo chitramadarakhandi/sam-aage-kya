@@ -2,11 +2,22 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
 import { useAuth } from '../context/AuthContext'
+import { resolveProfileAndRole } from '../authRoleResolver'
 
 const TABS = [
   { id: 'password', label: 'Email & Password' },
   { id: 'magic',    label: 'Magic Link' },
 ]
+
+// Supabase's rate-limit error message text (matches both "email rate limit
+// exceeded" and generic "too many requests" wording across API versions).
+// Used to decide whether the demo-sandbox offer makes sense — it should
+// NEVER be offered for a wrong password or unconfirmed email, since clicking
+// it does not sign in to the real account; it loads a hardcoded demo profile.
+function isRateLimitError(message) {
+  const m = (message || '').toLowerCase()
+  return m.includes('rate limit') || m.includes('too many requests')
+}
 
 export default function AuthModal({ isOpen, onClose }) {
   const navigate = useNavigate()
@@ -105,12 +116,15 @@ export default function AuthModal({ isOpen, onClose }) {
       error = e
       if (!error) {
         const { data: { user } } = await supabase.auth.getUser()
+        const { data: { session: activeSession } } = await supabase.auth.getSession()
         if (user) {
-          const { data: dbProfile } = await supabase
-            .from('students')
-            .select('role')
-            .eq('id', user.id)
-            .maybeSingle()
+          // Resolve role the same way AuthContext does — this also runs the
+          // mentor auto-link check (matches this email to an approved mentor
+          // application), so a real mentor lands on their own dashboard on
+          // the very first sign-in instead of getting stuck on 'student'
+          // because that link previously only ran once already inside
+          // /mentor-dashboard.
+          const dbProfile = await resolveProfileAndRole(user.id, user, activeSession?.access_token)
 
           const userRole = dbProfile?.role || 'student'
           onClose()
@@ -206,13 +220,18 @@ export default function AuthModal({ isOpen, onClose }) {
               {errorMsg && (
                 <div className="bg-rose-500/10 border border-rose-500/25 rounded-xl p-3.5 text-rose-300 text-xs mb-4 leading-relaxed flex flex-col gap-2">
                   <span>⚠️ {errorMsg}</span>
-                  {email.trim() && (
+                  {/* Only offer the demo sandbox for an ACTUAL rate-limit error.
+                      Showing it for wrong-password/unconfirmed-email errors made
+                      it look like "sign in instantly as me", but it logs into a
+                      hardcoded fake account with the same demo data every time —
+                      never your real mentor profile. */}
+                  {isRateLimitError(errorMsg) && email.trim() && (
                     <button
                       type="button"
                       onClick={() => handleDemoLogin(userType)}
                       className="mt-1 text-left text-saffron hover:underline font-bold"
                     >
-                      ⚡ Bypass rate limit &amp; sign in instantly as {userType === 'admin' ? 'Admin' : userType === 'mentor' ? 'Mentor' : 'Student'} using &quot;{email}&quot; →
+                      ⚡ Try the Demo Sandbox instead (not your real account) →
                     </button>
                   )}
                 </div>
@@ -364,7 +383,7 @@ export default function AuthModal({ isOpen, onClose }) {
               {/* Demo Login Options */}
               <div className="relative my-5 flex items-center justify-center">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-white/5"></div></div>
-                <span className="relative z-10 px-3 bg-[#111827] text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Demo Sandbox Bypass</span>
+                <span className="relative z-10 px-3 bg-[#111827] text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Demo Sandbox (Sample Data — Not a Real Login)</span>
               </div>
               <div className="space-y-2">
                 <div className="grid grid-cols-2 gap-2">
@@ -373,14 +392,14 @@ export default function AuthModal({ isOpen, onClose }) {
                     onClick={() => handleDemoLogin('student', 'class10')}
                     className="py-2.5 rounded-xl border border-white/10 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-semibold transition-all duration-200"
                   >
-                    ⚡ Student (10th)
+                    🧪 Demo Student (10th)
                   </button>
                   <button
                     type="button"
                     onClick={() => handleDemoLogin('student', 'class12')}
                     className="py-2.5 rounded-xl border border-white/10 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-semibold transition-all duration-200"
                   >
-                    ⚡ Student (12th)
+                    🧪 Demo Student (12th)
                   </button>
                 </div>
                 <button
@@ -388,7 +407,7 @@ export default function AuthModal({ isOpen, onClose }) {
                   onClick={() => handleDemoLogin('mentor')}
                   className="w-full py-2.5 rounded-xl border border-white/10 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-xs font-semibold transition-all duration-200"
                 >
-                  ⚡ Mentor Demo
+                  🧪 Demo Mentor (sample data, not your account)
                 </button>
               </div>
             </>
