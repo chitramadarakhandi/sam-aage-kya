@@ -14,6 +14,20 @@ const LOGIN_AS_OPTIONS = [
   { id: 'admin',   label: 'Admin',   icon: '🔑' },
 ]
 
+// One-click demo logins. These are REAL Supabase accounts (seeded via
+// server/seedTestAccounts.js), not the old fake in-memory demo sessions —
+// so they go through the exact same real auth + role-resolution path as a
+// normal sign-in, land on real dashboards with real data, and never
+// reintroduce the account-shadowing bugs the old demo mode caused.
+// Requires those seeded accounts to exist in the Supabase project the app
+// is pointed at (run `node server/seedTestAccounts.js` if a demo login
+// returns "Invalid login credentials").
+const DEMO_ACCOUNTS = [
+  { role: 'student', label: 'Demo Student', icon: '🎓', email: 'test-student@aagekya.com', password: 'Student@123' },
+  { role: 'mentor',  label: 'Demo Mentor',  icon: '🧭', email: 'test-mentor@aagekya.com',  password: 'Mentor@123' },
+  { role: 'admin',   label: 'Demo Admin',   icon: '🔑', email: 'test-admin@aagekya.com',   password: 'Admin@123' },
+]
+
 // "Login as" is ONLY a routing hint for where to land after a real sign-in —
 // it never grants a role. The actual roles an account holds (student,
 // mentor, admin) are always resolved server-side via resolveProfileAndRole,
@@ -64,6 +78,36 @@ export default function AuthModal({ isOpen, onClose }) {
 
   const switchTab = (t) => { reset(); setTab(t) }
   const switchMode = (m) => { reset(); setMode(m) }
+
+  // One-click demo sign-in using a real seeded account. Reuses the exact
+  // same real-auth + role-resolution path as a manual sign-in.
+  const handleDemoLogin = async (account) => {
+    setErrorMsg('')
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: account.email, password: account.password })
+      if (error) {
+        setErrorMsg(
+          /invalid login credentials/i.test(error.message)
+            ? `Demo ${account.role} account isn't set up on this environment yet. Run the seed script (server/seedTestAccounts.js) against this Supabase project.`
+            : error.message
+        )
+        return
+      }
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { session: activeSession } } = await supabase.auth.getSession()
+      if (!user) { onClose(); return }
+      const dbProfile = await resolveProfileAndRole(user.id, user, activeSession?.access_token)
+      const destination = resolvePostLoginDestination(dbProfile, account.role)
+      if (typeof destination === 'object') { setErrorMsg(destination.error); return }
+      onClose()
+      navigate(destination)
+    } catch (err) {
+      setErrorMsg(err.message || 'Something went wrong. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // ── Handlers ──────────────────────────────────────────────
   const handleMagicLink = async (e) => {
@@ -321,6 +365,32 @@ export default function AuthModal({ isOpen, onClose }) {
                     )}
                   </p>
                 </form>
+              )}
+
+              {/* ── One-click demo logins (real seeded accounts) ── */}
+              {mode === 'signin' && (
+                <div className="mt-5 pt-5 border-t border-white/10">
+                  <p className="text-center text-gray-500 text-[10px] uppercase tracking-wider font-semibold mb-3">
+                    Or try a demo account
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {DEMO_ACCOUNTS.map((acc) => (
+                      <button
+                        key={acc.role}
+                        type="button"
+                        disabled={loading}
+                        onClick={() => handleDemoLogin(acc)}
+                        className="p-3 rounded-xl border border-white/10 bg-[#111827]/60 hover:border-saffron/40 hover:bg-saffron/5 text-gray-300 hover:text-white transition-all duration-200 flex flex-col items-center justify-center gap-1 disabled:opacity-50"
+                      >
+                        <span className="text-xl">{acc.icon}</span>
+                        <span className="text-[11px] font-bold tracking-tight">{acc.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-center text-gray-600 text-[10px] mt-2">
+                    One-click sign in with sample data — no password needed.
+                  </p>
+                </div>
               )}
             </>
           )}
