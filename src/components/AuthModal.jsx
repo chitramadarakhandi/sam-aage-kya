@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../supabaseClient'
-import { useAuth } from '../context/AuthContext'
 import { resolveProfileAndRole } from '../authRoleResolver'
 
 const TABS = [
@@ -9,25 +8,47 @@ const TABS = [
   { id: 'magic',    label: 'Magic Link' },
 ]
 
-// Supabase's rate-limit error message text (matches both "email rate limit
-// exceeded" and generic "too many requests" wording across API versions).
-// Used to decide whether the demo-sandbox offer makes sense — it should
-// NEVER be offered for a wrong password or unconfirmed email, since clicking
-// it does not sign in to the real account; it loads a hardcoded demo profile.
-function isRateLimitError(message) {
-  const m = (message || '').toLowerCase()
-  return m.includes('rate limit') || m.includes('too many requests')
+const LOGIN_AS_OPTIONS = [
+  { id: 'student', label: 'Student', icon: '🎓' },
+  { id: 'mentor',  label: 'Mentor',  icon: '🧭' },
+  { id: 'admin',   label: 'Admin',   icon: '🔑' },
+]
+
+// "Login as" is ONLY a routing hint for where to land after a real sign-in —
+// it never grants a role. The actual roles an account holds (student,
+// mentor, admin) are always resolved server-side via resolveProfileAndRole,
+// which checks the students table and the mentor-linking/approval workflow.
+// Picking "Admin" or "Mentor" here does nothing by itself; see
+// resolvePostLoginDestination below for how a mismatch is handled.
+function resolvePostLoginDestination(profile, loginAs) {
+  const roles = profile?.roles || []
+
+  if (loginAs === 'admin') {
+    return roles.includes('admin') ? '/admin-dashboard' : { error: "This account doesn't have admin access." }
+  }
+  if (loginAs === 'mentor') {
+    // MentorDashboard itself shows "apply to mentor" / "pending approval"
+    // screens for an account with no approved mentor link yet, so it's safe
+    // to always route here rather than erroring — matches how the mentor
+    // dashboard already communicates status.
+    return '/mentor-dashboard'
+  }
+  // loginAs === 'student' (or unset): respect the explicit choice, but if
+  // the account also holds other roles, offer the picker instead of hiding them.
+  if (roles.length > 1) return '/choose-role'
+  if (roles.includes('admin')) return '/admin-dashboard'
+  if (roles.includes('mentor')) return '/mentor-dashboard'
+  return '/dashboard'
 }
 
 export default function AuthModal({ isOpen, onClose }) {
   const navigate = useNavigate()
-  const { loginAsDemo } = useAuth()
   const [tab, setTab]           = useState('password')   // 'password' | 'magic'
   const [mode, setMode]         = useState('signin')     // 'signin' | 'signup'
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm]   = useState('')
-  const [userType, setUserType] = useState('student')   // student | admin
+  const [loginAs, setLoginAs]   = useState('student')   // routing hint only — see resolvePostLoginDestination
   const [loading, setLoading]   = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [success, setSuccess]   = useState(false)
@@ -35,20 +56,8 @@ export default function AuthModal({ isOpen, onClose }) {
 
   if (!isOpen) return null
 
-  const handleDemoLogin = (role, classLevel = 'class12') => {
-    loginAsDemo(role, email, classLevel)
-    onClose()
-    if (role === 'admin') {
-      navigate('/admin-dashboard')
-    } else if (role === 'mentor') {
-      navigate('/mentor-dashboard')
-    } else {
-      navigate('/dashboard')
-    }
-  }
-
   const reset = () => {
-    setEmail(''); setPassword(''); setConfirm(''); setUserType('student')
+    setEmail(''); setPassword(''); setConfirm(''); setLoginAs('student')
     setErrorMsg(''); setSuccess(false); setSuccessMsg('')
     setLoading(false)
   }
@@ -60,16 +69,15 @@ export default function AuthModal({ isOpen, onClose }) {
   const handleMagicLink = async (e) => {
     e.preventDefault()
     if (!email.trim()) return setErrorMsg('Please enter your email.')
-    // Clear any leftover demo session — otherwise AuthContext's auth-state
-    // listener ignores real sign-ins while this flag is present, and the
-    // user keeps seeing demo/sandbox data instead of their real account.
-    localStorage.removeItem('aageKyaDemoSession')
     setLoading(true); setErrorMsg('')
+    // Stash the routing hint so PostLoginRedirect (App.jsx) can honor it once
+    // the magic link is clicked and the account's real roles are known —
+    // this never grants a role, it only decides where to land afterward.
+    sessionStorage.setItem('aageKyaLoginAs', loginAs)
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
         emailRedirectTo: window.location.origin,
-        data: { user_type: userType }
       },
     })
     setLoading(false)
@@ -81,10 +89,6 @@ export default function AuthModal({ isOpen, onClose }) {
   const handleEmailPassword = async (e) => {
     e.preventDefault()
     setErrorMsg('')
-    // Clear any leftover demo session — otherwise AuthContext's auth-state
-    // listener ignores real sign-ins while this flag is present, and the
-    // user keeps seeing demo/sandbox data instead of their real account.
-    localStorage.removeItem('aageKyaDemoSession')
     if (!email.trim() || !password)
       return setErrorMsg('Please fill in all fields.')
 
@@ -96,53 +100,56 @@ export default function AuthModal({ isOpen, onClose }) {
     }
 
     setLoading(true)
-    let error
-    if (mode === 'signup') {
-      const { error: e } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: window.location.origin,
-          data: { user_type: userType }
-        },
-      })
-      error = e
-      if (!error) {
+    // IMPORTANT: everything below must run inside try/finally. This modal
+    // component doesn't unmount when closed (isOpen just hides it), so its
+    // state — including `loading` — persists across opens. An uncaught
+    // error here (e.g. a network hiccup while resolving roles) used to skip
+    // setLoading(false) entirely, leaving the button stuck on "Signing
+    // in..." forever, even the next time the modal was reopened with a
+    // blank form. The finally block guarantees loading is always cleared.
+    try {
+      if (mode === 'signup') {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: window.location.origin,
+          },
+        })
+        if (error) { setErrorMsg(error.message); return }
         setSuccess(true)
         setSuccessMsg(`Account created! Check ${email} for a confirmation link.`)
-      }
-    } else {
-      const { error: e } = await supabase.auth.signInWithPassword({ email, password })
-      error = e
-      if (!error) {
-        const { data: { user } } = await supabase.auth.getUser()
-        const { data: { session: activeSession } } = await supabase.auth.getSession()
-        if (user) {
-          // Resolve role the same way AuthContext does — this also runs the
-          // mentor auto-link check (matches this email to an approved mentor
-          // application), so a real mentor lands on their own dashboard on
-          // the very first sign-in instead of getting stuck on 'student'
-          // because that link previously only ran once already inside
-          // /mentor-dashboard.
-          const dbProfile = await resolveProfileAndRole(user.id, user, activeSession?.access_token)
-
-          const userRole = dbProfile?.role || 'student'
-          onClose()
-          if (userRole === 'admin') {
-            navigate('/admin-dashboard')
-          } else if (userRole === 'mentor') {
-            navigate('/mentor-dashboard')
-          } else {
-            navigate('/dashboard')
-          }
-        } else {
-          onClose()
-        }
         return
       }
+
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) { setErrorMsg(error.message); return }
+
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { session: activeSession } } = await supabase.auth.getSession()
+      if (!user) { onClose(); return }
+
+      // Resolve the full set of roles this account holds (student, mentor,
+      // admin) the same way AuthContext does — this also runs the mentor
+      // auto-link check (matches this email to an approved mentor
+      // application), so a real mentor lands on their own dashboard on the
+      // very first sign-in.
+      const dbProfile = await resolveProfileAndRole(user.id, user, activeSession?.access_token)
+      const destination = resolvePostLoginDestination(dbProfile, loginAs)
+      if (typeof destination === 'object') {
+        // "Login as Admin" chosen but this account isn't actually an
+        // admin — say so plainly instead of silently signing them in
+        // somewhere they didn't ask for.
+        setErrorMsg(destination.error)
+        return
+      }
+      onClose()
+      navigate(destination)
+    } catch (err) {
+      setErrorMsg(err.message || 'Something went wrong. Please try again.')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
-    if (error) setErrorMsg(error.message)
   }
 
   // ── Spinner ────────────────────────────────────────────────
@@ -218,22 +225,8 @@ export default function AuthModal({ isOpen, onClose }) {
 
               {/* Error */}
               {errorMsg && (
-                <div className="bg-rose-500/10 border border-rose-500/25 rounded-xl p-3.5 text-rose-300 text-xs mb-4 leading-relaxed flex flex-col gap-2">
-                  <span>⚠️ {errorMsg}</span>
-                  {/* Only offer the demo sandbox for an ACTUAL rate-limit error.
-                      Showing it for wrong-password/unconfirmed-email errors made
-                      it look like "sign in instantly as me", but it logs into a
-                      hardcoded fake account with the same demo data every time —
-                      never your real mentor profile. */}
-                  {isRateLimitError(errorMsg) && email.trim() && (
-                    <button
-                      type="button"
-                      onClick={() => handleDemoLogin(userType)}
-                      className="mt-1 text-left text-saffron hover:underline font-bold"
-                    >
-                      ⚡ Try the Demo Sandbox instead (not your real account) →
-                    </button>
-                  )}
+                <div className="bg-rose-500/10 border border-rose-500/25 rounded-xl p-3.5 text-rose-300 text-xs mb-4 leading-relaxed">
+                  ⚠️ {errorMsg}
                 </div>
               )}
 
@@ -249,35 +242,7 @@ export default function AuthModal({ isOpen, onClose }) {
                       className={inputClass}
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1.5">User Type</label>
-                    <div className="grid grid-cols-3 gap-2 mt-1">
-                      {[
-                        { id: 'student', label: 'Student', icon: '🎓' },
-                        { id: 'mentor', label: 'Mentor', icon: '🧭' },
-                        { id: 'admin', label: 'Admin', icon: '🔑' },
-                      ].map(t => (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => setUserType(t.id)}
-                          className={`p-3 rounded-xl border text-center transition-all duration-200 flex flex-col items-center justify-center gap-1 ${
-                            userType === t.id
-                              ? 'bg-saffron/15 border-saffron text-white ring-2 ring-saffron/20'
-                              : 'bg-[#111827]/60 border-white/10 text-gray-400 hover:border-white/20 hover:text-gray-200'
-                          }`}
-                        >
-                          <span className="text-xl">{t.icon}</span>
-                          <span className="text-[11px] font-bold tracking-tight">{t.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                    {userType === 'mentor' && (
-                      <p className="text-gray-500 text-[10px] mt-1.5 leading-relaxed">
-                        Log in as a mentor to answer student questions and track your application status.
-                      </p>
-                    )}
-                  </div>
+                  <LoginAsPicker loginAs={loginAs} setLoginAs={setLoginAs} onClose={onClose} />
                   <button type="submit" disabled={loading} className="w-full btn-primary py-3 text-sm gap-2 disabled:opacity-60">
                     {loading ? <Spinner /> : null}
                     {loading ? 'Sending...' : 'Send Magic Link →'}
@@ -321,36 +286,14 @@ export default function AuthModal({ isOpen, onClose }) {
                     </div>
                   )}
                   {mode === 'signup' && (
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-300 mb-1.5">User Type</label>
-                      <div className="grid grid-cols-3 gap-2 mt-1">
-                        {[
-                          { id: 'student', label: 'Student', icon: '🎓' },
-                          { id: 'mentor', label: 'Mentor', icon: '🧭' },
-                          { id: 'admin', label: 'Admin', icon: '🔑' },
-                        ].map(t => (
-                          <button
-                            key={t.id}
-                            type="button"
-                            onClick={() => setUserType(t.id)}
-                            className={`p-3 rounded-xl border text-center transition-all duration-200 flex flex-col items-center justify-center gap-1 ${
-                              userType === t.id
-                                ? 'bg-saffron/15 border-saffron text-white ring-2 ring-saffron/20'
-                                : 'bg-[#111827]/60 border-white/10 text-gray-400 hover:border-white/20 hover:text-gray-200'
-                            }`}
-                          >
-                            <span className="text-xl">{t.icon}</span>
-                            <span className="text-[11px] font-bold tracking-tight">{t.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                      {userType === 'mentor' && (
-                        <p className="text-gray-500 text-[10px] mt-1.5 leading-relaxed">
-                          Mentors answer student questions and get application updates in their dashboard.
-                          Want to become one? <Link to="/mentor-apply" onClick={onClose} className="text-saffron hover:underline">Apply here</Link>.
-                        </p>
-                      )}
-                    </div>
+                    <p className="text-gray-500 text-[10px] leading-relaxed">
+                      Every account starts as a student. Approved mentors automatically get mentor access on the same account — no separate signup needed.
+                      Want to become a mentor? <Link to="/mentor-apply" onClick={onClose} className="text-saffron hover:underline">Apply here</Link>.
+                    </p>
+                  )}
+
+                  {mode === 'signin' && (
+                    <LoginAsPicker loginAs={loginAs} setLoginAs={setLoginAs} onClose={onClose} />
                   )}
 
                   <button type="submit" disabled={loading} className="w-full btn-primary py-3 text-sm gap-2 disabled:opacity-60">
@@ -379,41 +322,51 @@ export default function AuthModal({ isOpen, onClose }) {
                   </p>
                 </form>
               )}
-
-              {/* Demo Login Options */}
-              <div className="relative my-5 flex items-center justify-center">
-                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-white/5"></div></div>
-                <span className="relative z-10 px-3 bg-[#111827] text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Demo Sandbox (Sample Data — Not a Real Login)</span>
-              </div>
-              <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleDemoLogin('student', 'class10')}
-                    className="py-2.5 rounded-xl border border-white/10 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-semibold transition-all duration-200"
-                  >
-                    🧪 Demo Student (10th)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDemoLogin('student', 'class12')}
-                    className="py-2.5 rounded-xl border border-white/10 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-semibold transition-all duration-200"
-                  >
-                    🧪 Demo Student (12th)
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleDemoLogin('mentor')}
-                  className="w-full py-2.5 rounded-xl border border-white/10 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-xs font-semibold transition-all duration-200"
-                >
-                  🧪 Demo Mentor (sample data, not your account)
-                </button>
-              </div>
             </>
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── "Login as" selector ────────────────────────────────────────────────────
+// Purely a routing hint — see resolvePostLoginDestination above. Choosing
+// "Mentor" or "Admin" here never grants that access; it only tells the app
+// where to try to land you after your REAL identity/role has been verified
+// server-side. An account without that role gets a clear message instead.
+function LoginAsPicker({ loginAs, setLoginAs, onClose }) {
+  return (
+    <div>
+      <label className="block text-xs font-semibold text-gray-300 mb-1.5">Login as</label>
+      <div className="grid grid-cols-3 gap-2">
+        {LOGIN_AS_OPTIONS.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => setLoginAs(opt.id)}
+            className={`p-3 rounded-xl border text-center transition-all duration-200 flex flex-col items-center justify-center gap-1 ${
+              loginAs === opt.id
+                ? 'bg-saffron/15 border-saffron text-white ring-2 ring-saffron/20'
+                : 'bg-[#111827]/60 border-white/10 text-gray-400 hover:border-white/20 hover:text-gray-200'
+            }`}
+          >
+            <span className="text-xl">{opt.icon}</span>
+            <span className="text-[11px] font-bold tracking-tight">{opt.label}</span>
+          </button>
+        ))}
+      </div>
+      {loginAs === 'mentor' && (
+        <p className="text-gray-500 text-[10px] mt-1.5 leading-relaxed">
+          Only works if this email has an approved mentor application.
+          Not a mentor yet? <Link to="/mentor-apply" onClick={onClose} className="text-saffron hover:underline">Apply here</Link>.
+        </p>
+      )}
+      {loginAs === 'admin' && (
+        <p className="text-gray-500 text-[10px] mt-1.5 leading-relaxed">
+          Only works if this account already has admin access.
+        </p>
+      )}
     </div>
   )
 }

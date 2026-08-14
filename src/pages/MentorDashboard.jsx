@@ -15,24 +15,6 @@ function formatDate(ts) {
 
 const CLASS_LABELS = { '10th': 'Class 10th', '12th': 'Class 12th', Other: 'Other / UG' }
 
-// ─── Demo sandbox banner ───────────────────────────────────────────────────────
-// Makes it unmistakable when the dashboard is showing hardcoded sandbox data
-// instead of a real mentor's own data — this is NOT your real mentor account.
-function DemoSandboxBanner() {
-  return (
-    <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4 mb-6 flex items-start gap-3">
-      <span className="text-2xl flex-shrink-0">🧪</span>
-      <div>
-        <p className="text-indigo-300 text-sm font-bold">You're viewing the Demo Sandbox.</p>
-        <p className="text-gray-400 text-xs mt-0.5">
-          This is sample data, not a real mentor account. To see your own student questions and bookings,
-          sign out and sign in with your real mentor email and password.
-        </p>
-      </div>
-    </div>
-  )
-}
-
 // ─── Application status banner ────────────────────────────────────────────────
 // Shows a new/returning mentor whether their application was accepted, rejected,
 // or is still under review — right inside the dashboard.
@@ -71,7 +53,7 @@ function ApplicationBanner({ application, linked }) {
       <div className="glass-card border-amber-500/20 bg-amber-500/5 p-4 sm:p-5 mb-6 flex items-start gap-3">
         <span className="text-2xl flex-shrink-0">⏳</span>
         <div>
-          <p className="text-amber-300 text-sm font-bold">Your mentor application is under review.</p>
+          <p className="text-amber-300 text-sm font-bold">Mentor application pending admin approval.</p>
           <p className="text-gray-400 text-xs mt-0.5">
             You will be able to access mentoring features once your application has been approved.
             Submitted {formatDate(application?.created_at)}.
@@ -266,7 +248,6 @@ function BookingCard({ booking, draft, onDraftChange, onRespond, busy }) {
 export default function MentorDashboard() {
   const { user, session, loading: authLoading } = useAuth()
   const navigate = useNavigate()
-  const isDemoSandbox = session?.access_token === 'demo-mentor-token'
 
   const [mentorProfile, setMentorProfile] = useState(null)
   const [application, setApplication] = useState(null)
@@ -459,8 +440,6 @@ export default function MentorDashboard() {
     <main className="pt-24 pb-16 min-h-screen px-4 sm:px-6 lg:px-8 font-sans">
       <div className="max-w-4xl mx-auto">
 
-        {isDemoSandbox && <DemoSandboxBanner />}
-
         {/* Header */}
         <div className="flex items-center gap-4 mb-6">
           <div className={`w-14 h-14 rounded-2xl ${mentorProfile.initials_bg || 'bg-saffron/20 text-saffron'} flex items-center justify-center font-display font-bold text-lg flex-shrink-0`}>
@@ -473,7 +452,7 @@ export default function MentorDashboard() {
         </div>
 
         {/* Approval / status banner */}
-        {!isDemoSandbox && <ApplicationBanner application={application} linked={true} />}
+        <ApplicationBanner application={application} linked={true} />
 
         {/* Tab switcher */}
         <div className="flex flex-wrap gap-2 mb-6">

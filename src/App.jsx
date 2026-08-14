@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AuthProvider, useAuth } from './context/AuthContext'
@@ -27,6 +27,7 @@ import Scholarships from './pages/Scholarships'
 import CollegeOverview from './pages/CollegeOverview'
 import MentorApplication from './pages/MentorApplication'
 import MyMentorRequests from './pages/MyMentorRequests'
+import RoleSelect from './pages/RoleSelect'
 import Explore from './pages/Explore'
 import OnlineEducation from './pages/OnlineEducation'
 
@@ -60,8 +61,12 @@ function ProtectedRoute({ children, allowedRoles }) {
   }
 
   if (allowedRoles) {
-    const userRole = profile?.role || 'student'
-    if (!allowedRoles.includes(userRole)) {
+    // A single account can hold multiple roles (e.g. student + mentor), so
+    // check the full derived `roles` set rather than the single `role`
+    // string, which is never overwritten to 'mentor' anymore.
+    const userRoles = profile?.roles || (profile?.role ? [profile.role] : ['student'])
+    const hasAllowedRole = allowedRoles.some((r) => userRoles.includes(r))
+    if (!hasAllowedRole) {
       return <Navigate to="/dashboard" replace />
     }
   }
@@ -74,6 +79,51 @@ function ScrollToTop() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' })
   }, [pathname])
+  return null
+}
+
+// ─── Post-login redirect (magic link path) ─────────────────────────────────
+// Email+password sign-in already redirects explicitly inside AuthModal. A
+// magic link click, however, lands the user back on whatever page they were
+// on (usually "/") with no redirect logic at all — this component catches
+// that one-time "just signed in" flag (set in AuthContext) and sends the
+// account to the right dashboard once its roles are known, without ever
+// hijacking normal in-app navigation on subsequent page loads.
+function PostLoginRedirect() {
+  const { user, profile, loading } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  useEffect(() => {
+    if (loading || !user || !profile) return
+    if (!sessionStorage.getItem('aageKyaJustSignedIn')) return
+    sessionStorage.removeItem('aageKyaJustSignedIn')
+
+    // "Login as" chosen in the auth modal before the magic link was sent —
+    // a routing hint only, never a grant of access. See AuthModal.jsx's
+    // resolvePostLoginDestination for the equivalent password-flow logic.
+    const loginAs = sessionStorage.getItem('aageKyaLoginAs') || 'student'
+    sessionStorage.removeItem('aageKyaLoginAs')
+
+    const roles = profile.roles || (profile.role ? [profile.role] : ['student'])
+    let destination = '/dashboard'
+    if (loginAs === 'admin') {
+      destination = roles.includes('admin') ? '/admin-dashboard' : '/dashboard'
+    } else if (loginAs === 'mentor') {
+      destination = '/mentor-dashboard'
+    } else if (roles.length > 1) {
+      destination = '/choose-role'
+    } else if (roles.includes('admin')) {
+      destination = '/admin-dashboard'
+    } else if (roles.includes('mentor')) {
+      destination = '/mentor-dashboard'
+    }
+
+    // Don't clobber a deep link the magic link itself pointed at (e.g.
+    // emailRedirectTo set to a specific page elsewhere in the app).
+    if (location.pathname === '/' ) navigate(destination, { replace: true })
+  }, [loading, user, profile, location.pathname, navigate])
+
   return null
 }
 
@@ -115,6 +165,7 @@ function AnimatedRoutes() {
           <Route path="/:classLevel/result/print" element={<ProtectedRoute><PrintReport /></ProtectedRoute>} />
           <Route path="/scenarios"         element={<ProtectedRoute><Scenarios /></ProtectedRoute>} />
           <Route path="/my-mentor-requests" element={<ProtectedRoute><MyMentorRequests /></ProtectedRoute>} />
+          <Route path="/choose-role"       element={<ProtectedRoute><RoleSelect /></ProtectedRoute>} />
           
           {/* Protected Mentor Routes */}
           {/* No allowedRoles gate here: a real mentor's local `students.role`
@@ -161,6 +212,7 @@ function App() {
       <BrowserRouter>
         <div className="min-h-screen bg-navy flex flex-col">
           <ScrollToTop />
+          <PostLoginRedirect />
           <Navbar />
           <AnimatedRoutes />
           <Footer />

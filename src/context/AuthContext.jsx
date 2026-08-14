@@ -8,40 +8,9 @@ export function AuthProvider({ children }) {
   const [user, setUser]       = useState(null)
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [profile, setProfile] = useState(null) // students row
+  const [profile, setProfile] = useState(null) // students row, includes derived .roles (see authRoleResolver)
 
   useEffect(() => {
-    // Check if there is a stored demo session first — but only use it if
-    // there is NOT also a real Supabase session. A stale demo flag left
-    // over from a previous "Demo Sandbox Bypass" click must never shadow a
-    // real logged-in account (that was causing every mentor to see demo
-    // data instead of their own).
-    const storedDemo = localStorage.getItem('aageKyaDemoSession')
-    if (storedDemo) {
-      supabase.auth.getSession().then(({ data: { session: realSession } }) => {
-        if (realSession?.user) {
-          // A real session exists — the demo flag is stale, drop it and use the real one.
-          localStorage.removeItem('aageKyaDemoSession')
-          setSession(realSession)
-          setUser(realSession.user)
-          fetchProfile(realSession.user.id, realSession.user, realSession.access_token)
-          setLoading(false)
-          return
-        }
-        try {
-          const { demoSession, demoProfile } = JSON.parse(storedDemo)
-          setSession(demoSession)
-          setUser(demoSession.user)
-          setProfile(demoProfile)
-        } catch (err) {
-          console.error('Failed to parse demo session', err)
-          localStorage.removeItem('aageKyaDemoSession')
-        }
-        setLoading(false)
-      })
-      return
-    }
-
     // Initial session check
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
@@ -50,21 +19,16 @@ export function AuthProvider({ children }) {
       setLoading(false)
     })
 
-    // Listen for auth changes
+    // Listen for auth changes (magic link click, password sign-in, sign out).
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        // A real, non-empty session (e.g. a magic link being clicked, or a
-        // password sign-in) always wins over a stale demo flag left behind
-        // from a previous "Demo Sandbox" click — otherwise every future real
-        // sign-in silently gets ignored and the user stays stuck on demo data.
-        if (session?.user) {
-          localStorage.removeItem('aageKyaDemoSession')
-        } else if (localStorage.getItem('aageKyaDemoSession')) {
-          // No real session and we're actively in the demo sandbox — ignore
-          // this (e.g. a spurious signed-out ping) so the demo profile stays.
-          return
+      async (event, session) => {
+        // Flag a fresh sign-in (magic link click or a brand-new tab picking
+        // up a password sign-in) so a one-time post-login redirect/role-picker
+        // can run once profile.roles is available — see PostLoginRedirect in
+        // App.jsx. Cleared once that redirect has happened.
+        if (event === 'SIGNED_IN') {
+          sessionStorage.setItem('aageKyaJustSignedIn', '1')
         }
-
         setSession(session)
         setUser(session?.user ?? null)
         if (session?.user) {
@@ -85,7 +49,6 @@ export function AuthProvider({ children }) {
 
   async function signOut() {
     await supabase.auth.signOut()
-    localStorage.removeItem('aageKyaDemoSession')
     localStorage.removeItem('aageKyaRoadmap')
     localStorage.removeItem('aageKyaResult')
     localStorage.removeItem('aageKyaFormData')
@@ -94,44 +57,14 @@ export function AuthProvider({ children }) {
     setProfile(null)
   }
 
-  function loginAsDemo(role, customEmail, classLevel = 'class12') {
-    const emailVal = customEmail || (
-      role === 'admin' ? 'demo-admin@aagekya.com' :
-      role === 'mentor' ? 'demo-mentor@aagekya.com' :
-      'demo-student@aagekya.com'
-    )
-    const demoSession = {
-      access_token: role === 'admin' ? 'demo-admin-token' : role === 'mentor' ? 'demo-mentor-token' : 'demo-student-token',
-      user: {
-        id: role === 'admin' ? '00000000-0000-0000-0000-000000000002' :
-            role === 'mentor' ? '00000000-0000-0000-0000-000000000003' :
-            '00000000-0000-0000-0000-000000000001',
-        email: emailVal,
-        user_metadata: { user_type: role }
-      }
-    }
-    const demoProfile = {
-      id: demoSession.user.id,
-      role: role,
-      full_name: role === 'admin' ? 'Demo Admin' :
-                 role === 'mentor' ? 'Demo Mentor' :
-                 (emailVal.split('@')[0] || 'Demo Student'),
-      class_level: classLevel,
-    }
-    setSession(demoSession)
-    setUser(demoSession.user)
-    setProfile(demoProfile)
-    localStorage.setItem('aageKyaDemoSession', JSON.stringify({ demoSession, demoProfile }))
-  }
-
   async function refreshProfile() {
-    if (user && !localStorage.getItem('aageKyaDemoSession')) {
+    if (user) {
       await fetchProfile(user.id, user, session?.access_token)
     }
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, profile, signOut, refreshProfile, loginAsDemo }}>
+    <AuthContext.Provider value={{ user, session, loading, profile, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )

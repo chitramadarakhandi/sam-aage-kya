@@ -55,11 +55,25 @@ function buildSalaryTimeline(entryLPA, midLPA, seniorLPA) {
 /**
  * Builds the 5/10-year demand forecast from a current demand score and an
  * annual growth-rate percentage, clamped to 0-100 so it stays chart-safe.
+ *
+ * BUG FIX: the previous version divided the compounded value by an
+ * arbitrary "saturation" factor (1.35 at year 5, 1.9 at year 10) whenever
+ * growth was non-negative. For any career with a modest positive growth
+ * rate (e.g. Mechanical Engineer at +3%/yr), 5-10 years of compounding at
+ * that rate is smaller than the divisor, so the divide-down effect always
+ * won — the forecast line pointed DOWN even though the underlying growth
+ * rate was positive. That's a materially misleading signal: a student
+ * could see "demand is shrinking" next to a rising salary line for a
+ * field the data itself says is growing. Compounding is now applied
+ * directly with no hidden dampening, so the forecast's direction always
+ * matches the sign of growthRatePercent — a positive rate can never
+ * produce a declining line, and a negative rate can never produce a
+ * rising one.
  */
 function buildDemandForecast(currentDemand, growthRatePercent) {
   const clamp = (n) => Math.max(0, Math.min(100, Math.round(n)))
-  const year5 = clamp(currentDemand * Math.pow(1 + growthRatePercent / 100, 5) / (growthRatePercent >= 0 ? 1.35 : 1))
-  const year10 = clamp(currentDemand * Math.pow(1 + growthRatePercent / 100, 10) / (growthRatePercent >= 0 ? 1.9 : 1))
+  const year5 = clamp(currentDemand * Math.pow(1 + growthRatePercent / 100, 5))
+  const year10 = clamp(currentDemand * Math.pow(1 + growthRatePercent / 100, 10))
   return { current: currentDemand, year5, year10 }
 }
 
@@ -78,7 +92,7 @@ export function buildCareer(seed) {
     entrepreneurScore, higherEducationOptions = [], governmentOpportunities = [],
     topRecruiters = [], topColleges = [], scholarships = [], youtubeResources = [],
     roadmap = [], relatedCareers = [], advantages = [], challenges = [],
-    govtCareer = false, studyAbroadFriendly = false,
+    govtCareer = false, studyAbroadFriendly = false, tierDependencyWarning = null,
   } = seed
 
   const salaryTimeline = buildSalaryTimeline(entryLPA, midLPA, seniorLPA)
@@ -161,5 +175,6 @@ export function buildCareer(seed) {
     entrepreneurshipScope: entrepreneurship,
     topRecruiters, topColleges, scholarships, youtubeResources, roadmap,
     relatedCareers, advantages, challenges, govtCareer, studyAbroadFriendly,
+    tierDependencyWarning,
   }
 }

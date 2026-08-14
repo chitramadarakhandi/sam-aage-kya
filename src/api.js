@@ -171,6 +171,15 @@ export async function postQAQuestion(question, streamTag, authToken) {
   })
 }
 
+// Mentor answers a public Q&A Board question.
+export async function patchQAAnswer(id, answer, authToken) {
+  return apiFetch(`/api/qa/${id}/answer`, {
+    method: 'PATCH',
+    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    body: JSON.stringify({ answer }),
+  })
+}
+
 export async function postChat(messages, profile) {
   return apiFetch('/api/chat', {
     method: 'POST',

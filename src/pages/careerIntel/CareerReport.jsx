@@ -62,9 +62,15 @@ export default function CareerReport() {
     points: career.salaryTimeline.map((p) => ({ x: p.year, y: market === 'india' ? p.indiaLPA : p.globalUSD })),
   }]
 
+  // NOTE: x must be numeric — LineChart computes its scale with Math.min/max
+  // over point.x, and Math.min('Now', '5yr', '10yr') is NaN, which silently
+  // rendered every point/line off-screen (the chart looked blank even
+  // though the y-axis gridline numbers, e.g. 71/53/36, were correct).
+  // Use year-offsets (0/5/10) for the scale, with a label map for display.
+  const DEMAND_X_LABELS = { 0: 'Now', 5: '5yr', 10: '10yr' }
   const demandSeries = [
     { name: 'Demand Forecast', color: '#10B981', points: [
-      { x: 'Now', y: career.demand.current }, { x: '5yr', y: career.demand.year5 }, { x: '10yr', y: career.demand.year10 },
+      { x: 0, y: career.demand.current }, { x: 5, y: career.demand.year5 }, { x: 10, y: career.demand.year10 },
     ] },
   ]
 
@@ -131,6 +137,25 @@ export default function CareerReport() {
             <p className="text-gray-400 text-sm mt-1">{career.overview}</p>
           </div>
         </div>
+
+        {/* ── College-tier disparity warning ──
+             Shown BEFORE any score/chart, deliberately — every number on
+             this page is a single national-average-style estimate for the
+             career as a whole, and does not adjust for which college a
+             student would actually attend. For core branches like
+             Mechanical/Civil Engineering, real placement outcomes differ
+             sharply by institution tier, and a flattering-looking single
+             number can otherwise mislead a student into thinking the
+             stats apply equally regardless of where they study. */}
+        {career.tierDependencyWarning && (
+          <div className="rounded-2xl border border-amber-500/25 bg-amber-500/5 p-5 mb-8 flex items-start gap-3">
+            <span className="text-2xl flex-shrink-0">⚠️</span>
+            <div>
+              <p className="text-amber-300 text-sm font-bold mb-1">Outcomes vary a lot by college — read this before trusting the numbers below</p>
+              <p className="text-gray-300 text-xs leading-relaxed">{career.tierDependencyWarning}</p>
+            </div>
+          </div>
+        )}
 
         {/* ── Overview quick stats ── */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10">
@@ -245,6 +270,7 @@ export default function CareerReport() {
               explain={career.demand.reason}
               series={demandSeries}
               valueFormatter={(v) => `${v}`}
+              xLabelFormatter={(x) => DEMAND_X_LABELS[x] ?? x}
             />
           </div>
 

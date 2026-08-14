@@ -22,20 +22,19 @@ export async function resolveProfileAndRole(userId, sessionUser, accessToken) {
     .maybeSingle()
 
   if (!data && sessionUser) {
+    // SECURITY: a brand-new account is ALWAYS created as a plain 'student'
+    // from the client, regardless of what user_metadata.user_type says.
+    // user_metadata is client-controlled at signup time — trusting it for
+    // role would let anyone self-grant 'admin' or 'mentor' access. Mentor
+    // access is only ever granted server-side (via an approved
+    // mentor_applications row, checked further below); admin access is
+    // never grantable through this signup path at all.
     const userType = sessionUser.user_metadata?.user_type || 'class12'
-    let role = 'student'
+    const role = 'student'
     let class_level = 'class12'
     if (userType === 'class10') {
-      role = 'student'
       class_level = 'class10'
-    } else if (userType === 'other') {
-      role = 'other'
-      class_level = 'other'
-    } else if (userType === 'admin') {
-      role = 'admin'
-      class_level = 'other'
-    } else if (userType === 'mentor') {
-      role = 'mentor'
+    } else if (userType === 'other' || userType === 'mentor' || userType === 'admin') {
       class_level = 'other'
     }
 
@@ -60,24 +59,53 @@ export async function resolveProfileAndRole(userId, sessionUser, accessToken) {
     }
   }
 
-  // Auto-claim: if this email has an approved mentor application, the
-  // workspace endpoint links the mentors row and flips students.role to
-  // 'mentor' server-side. Run it right after login — not only once the user
-  // is already on /mentor-dashboard — so routing and nav reflect it right away.
-  if (accessToken && data && data.role !== 'admin') {
-    try {
-      const res = await getMentorWorkspace(accessToken)
-      if (res.ok) {
-        const { mentor } = await res.json()
-        if (mentor && data.role !== 'mentor') {
-          data = { ...data, role: 'mentor' }
+  // ─── Multi-role support ──────────────────────────────────────────────────
+  // One Supabase Auth account (one email) can be BOTH a student and a
+  // mentor. We no longer overwrite `students.role` when a mentor link is
+  // found — instead we compute the full set of roles this account currently
+  // holds and attach it as `data.roles` (e.g. ['student'], ['mentor'],
+  // ['student', 'mentor']). `data.role` is left untouched as the account's
+  // base/default role (almost always 'student', or 'admin').
+  //
+  // `data.mentorStatus` is one of:
+  //   null        — never applied to be a mentor
+  //   'pending'   — applied, awaiting admin review
+  //   'rejected'  — application was rejected (rejectionReason may be set)
+  //   'approved'  — approved AND linked to a mentors row (full mentor access)
+  const roles = new Set()
+  let mentorStatus = null
+  let mentorRejectionReason = null
+  let mentorApplicationEmail = null
+
+  if (data) {
+    if (data.role === 'admin') {
+      roles.add('admin')
+    } else {
+      roles.add('student')
+    }
+
+    if (accessToken) {
+      try {
+        const res = await getMentorWorkspace(accessToken)
+        if (res.ok) {
+          const { application, mentor } = await res.json()
+          if (mentor) {
+            // Linked to an approved mentor profile — full mentor access.
+            roles.add('mentor')
+            mentorStatus = 'approved'
+          } else if (application) {
+            mentorStatus = application.status || 'pending'
+            mentorRejectionReason = application.rejection_reason || null
+            mentorApplicationEmail = application.email || null
+          }
         }
+      } catch {
+        // Network hiccup — fall back to student-only rather than blocking sign-in.
       }
-    } catch {
-      // Network hiccup — fall back to whatever role we already have rather
-      // than blocking sign-in on this best-effort check.
     }
   }
 
   return data
+    ? { ...data, roles: Array.from(roles), mentorStatus, mentorRejectionReason, mentorApplicationEmail }
+    : data
 }

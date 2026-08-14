@@ -84,6 +84,18 @@ export const CAREER_SEEDS = [
     advantages: ['Strong PSU/government pathway via GATE', 'Tangible, hands-on work', 'Manufacturing sector is core to India'],
     challenges: ['Slower salary growth vs software', 'Often requires relocation to industrial hubs', 'High initial competition for PSU seats'],
     studyAbroadFriendly: true,
+    // IMPORTANT: every score above is a single national-average-style
+    // estimate for the career as a whole — it does NOT vary by college
+    // tier. For a core branch like Mechanical, real outcomes differ
+    // sharply by institution: IIT/NIT/top-state-college graduates get
+    // meaningfully better core-sector (PSU/manufacturing) placement than
+    // tier-2/tier-3 private college graduates, where core-sector hiring on
+    // campus is thin and a large share of graduates either go unplaced in
+    // their own field or pivot into unrelated IT/service-sector jobs just
+    // to get any job. This caveat is surfaced directly on the report page
+    // (see tierDependencyWarning below) rather than silently baked into
+    // a single flattering-looking number.
+    tierDependencyWarning: 'Placement outcomes for this branch vary sharply by college tier. IIT/NIT/top state colleges see strong core-sector (PSU, manufacturing) hiring; many tier-2/tier-3 private colleges see very limited on-campus core-sector recruitment, and a large share of graduates end up switching to unrelated IT/service-sector jobs, or struggle to find a role in this field at all. Research the ACTUAL placement record of the specific college you are considering — not just the branch — before deciding.',
   },
   {
     id: 'civil-engineer', name: 'Civil Engineer', category: 'Engineering', emoji: '🏗️',
@@ -117,6 +129,9 @@ export const CAREER_SEEDS = [
     advantages: ['Steady government-sector demand', 'Tangible nation-building work', 'Entrepreneurship via contracting'],
     challenges: ['Site-based, often remote postings', 'Payment delays common in private contracting', 'Physically demanding'],
     govtCareer: true, studyAbroadFriendly: true,
+    // See the mechanical-engineer entry above for why this field exists —
+    // same college-tier placement disparity applies to Civil.
+    tierDependencyWarning: 'Placement outcomes for this branch vary sharply by college tier. Top government/central colleges see strong campus recruitment from major construction and infrastructure firms; many tier-2/tier-3 private colleges see limited on-campus core-sector hiring. Government routes (PWD, SSC JE, railways) are more tier-agnostic than private-sector campus placement, so exam preparation can partly offset a lower-tier college. Research the specific college\'s actual placement record before deciding.',
   },
   {
     id: 'data-scientist', name: 'Data Scientist', category: 'Engineering', subCategory: 'Emerging Careers', emoji: '📊',

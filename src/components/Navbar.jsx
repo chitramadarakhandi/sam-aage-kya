@@ -31,16 +31,21 @@ export default function Navbar() {
   const onboardingLink = '/onboarding'
   const resultLink = profile?.class_level === 'class10' ? '/class10/result' : '/result'
 
-  const isAdminUser = profile?.role === 'admin'
-  const isMentorUser = profile?.role === 'mentor'
+  // A single account can hold multiple roles at once (e.g. student AND
+  // approved mentor) — students.role is never overwritten to 'mentor'
+  // anymore, so mentor/admin status is read from the derived `roles` array
+  // instead of the single `role` string.
+  const roles = profile?.roles || (profile?.role ? [profile.role] : [])
+  const isAdminUser = roles.includes('admin')
+  const isMentorUser = roles.includes('mentor')
+  const hasMultipleRoles = roles.length > 1
 
-  // Admins and mentors get a stripped-down nav — only their own dashboard.
-  // All the student-facing sections (Home, Explore, Careers, etc.) are hidden.
-  // (Identical logic to before — only the container this renders into changed.)
+  // Admins get a stripped-down nav — only their own dashboard.
+  // Mentors (and student+mentor dual-role accounts) still see the full
+  // student-facing nav, plus a Mentor Dashboard link, since the same
+  // account can act as either role.
   const navLinks = isAdminUser
     ? [{ to: '/admin-dashboard', label: 'Admin Dashboard' }]
-    : isMentorUser
-    ? [{ to: '/mentor-dashboard', label: 'Mentor Dashboard' }]
     : [
         { to: '/',           label: 'Home' },
         { to: '/explore',    label: 'Explore Paths' },
@@ -52,6 +57,7 @@ export default function Navbar() {
         { to: '/scholarships', label: 'Scholarships' },
         { to: '/study-abroad', label: 'Abroad' },
         { to: '/mentors',    label: 'Mentors' },
+        ...(isMentorUser ? [{ to: '/mentor-dashboard', label: 'Mentor Dashboard' }] : []),
       ]
 
   // On mobile, the bottom bar only has room for a handful of primary tabs;
@@ -87,9 +93,9 @@ export default function Navbar() {
   }
 
   const initials = user?.email?.[0]?.toUpperCase() ?? '?'
-  const isMentor = profile?.role === 'mentor'
-  const isAdmin = profile?.role === 'admin'
-  const homeTo = isAdminUser ? '/admin-dashboard' : isMentorUser ? '/mentor-dashboard' : '/'
+  const isMentor = isMentorUser
+  const isAdmin = isAdminUser
+  const homeTo = isAdminUser ? '/admin-dashboard' : '/'
 
   const isActivePath = (to) => (to === '/' ? location.pathname === '/' : location.pathname.startsWith(to))
 
@@ -205,11 +211,11 @@ export default function Navbar() {
                     <div className="px-4 py-3 border-b border-white/5">
                       <p className="text-white text-xs font-semibold truncate">{user.email}</p>
                       <p className="text-gray-500 text-[10px] mt-0.5 capitalize">
-                        {isAdmin ? '🔑 Admin' : isMentor ? '🌟 Mentor' : '🎓 Student'}
+                        {isAdmin ? '🔑 Admin' : hasMultipleRoles ? '🎓 Student · 🌟 Mentor' : isMentor ? '🌟 Mentor' : '🎓 Student'}
                       </p>
                     </div>
                     <div className="py-1">
-                      {!isAdmin && !isMentor && (
+                      {!isAdmin && (
                         <Link to="/dashboard" onClick={() => setDropdownOpen(false)} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5 transition-colors">
                           <span>🏠</span> Dashboard
                         </Link>
@@ -224,12 +230,12 @@ export default function Navbar() {
                           <span>🎓</span> Mentor Dashboard
                         </Link>
                       )}
-                      {!isAdmin && !isMentor && (
+                      {!isAdmin && (
                         <Link to={resultLink} onClick={() => setDropdownOpen(false)} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5 transition-colors">
                           <span>📄</span> My Results
                         </Link>
                       )}
-                      {!isAdmin && !isMentor && (
+                      {!isAdmin && (
                         <Link to="/my-mentor-requests" onClick={() => setDropdownOpen(false)} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-gray-300 hover:text-white hover:bg-white/5 transition-colors">
                           <span>💬</span> My Mentor Requests
                         </Link>
@@ -345,13 +351,13 @@ export default function Navbar() {
                 {user ? (
                   <>
                     <p className="text-gray-500 text-xs px-1 mb-1">{user.email}</p>
-                    {!isAdmin && !isMentor && (
+                    {!isAdmin && (
                       <Link to="/dashboard" onClick={() => setIsMoreOpen(false)} className="block px-3.5 py-2.5 rounded-xl text-sm text-gray-300 bg-white/5">🏠 Dashboard</Link>
                     )}
-                    {!isAdmin && !isMentor && (
+                    {!isAdmin && (
                       <Link to={resultLink} onClick={() => setIsMoreOpen(false)} className="block px-3.5 py-2.5 rounded-xl text-sm text-gray-300 bg-white/5">📄 My Results</Link>
                     )}
-                    {!isAdmin && !isMentor && (
+                    {!isAdmin && (
                       <Link to="/my-mentor-requests" onClick={() => setIsMoreOpen(false)} className="block px-3.5 py-2.5 rounded-xl text-sm text-gray-300 bg-white/5">💬 My Mentor Requests</Link>
                     )}
                     {isAdmin && (

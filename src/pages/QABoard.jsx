@@ -1,10 +1,60 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { getQAPosts, postQAQuestion } from '../api'
+import { getQAPosts, postQAQuestion, patchQAAnswer } from '../api'
 
 const STREAMS = ['All', 'Science (PCM)', 'Science (PCB)', 'Commerce', 'Arts / Humanities', 'Class 10 / Stream Selection']
 
-function PostCard({ post }) {
+// ─── Inline answer form — shown only to a signed-in mentor, on an
+// unanswered question. Submits via PATCH /api/qa/:id/answer, which verifies
+// mentor ownership server-side (so this is safe even if someone without a
+// linked mentor profile somehow saw the button — the backend would reject it).
+function MentorAnswerForm({ postId, session, onAnswered }) {
+  const [answer, setAnswer] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (answer.trim().length < 5) { setError('Please write at least 5 characters.'); return }
+    setSubmitting(true)
+    setError('')
+    try {
+      const res = await patchQAAnswer(postId, answer.trim(), session?.access_token)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.message || 'Failed to post your answer.')
+      onAnswered(data.post)
+      setAnswer('')
+    } catch (err) {
+      setError(err.message || 'Failed to post your answer.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-4 border-t border-white/10 pt-4 space-y-2">
+      <textarea
+        rows={2}
+        value={answer}
+        onChange={(e) => setAnswer(e.target.value)}
+        placeholder="Write your answer as a mentor…"
+        className="w-full bg-navy-800 border border-white/10 hover:border-white/20 focus:border-saffron/60 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm resize-none outline-none focus:ring-2 focus:ring-saffron/30 transition-all"
+      />
+      {error && <p className="text-rose-400 text-xs">{error}</p>}
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          disabled={submitting || answer.trim().length < 5}
+          className="btn-primary py-2 px-6 text-xs disabled:opacity-50"
+        >
+          {submitting ? 'Posting…' : 'Post Answer →'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function PostCard({ post, isMentor, session, onAnswered }) {
   const date = new Date(post.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
   const answered = !!post.answer
   return (
@@ -32,10 +82,15 @@ function PostCard({ post }) {
           <p className="text-gray-300 text-sm leading-relaxed">{post.answer}</p>
         </div>
       ) : (
-        <p className="text-gray-600 text-xs mt-3 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-          Waiting for a mentor to answer…
-        </p>
+        <>
+          <p className="text-gray-600 text-xs mt-3 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+            Waiting for a mentor to answer…
+          </p>
+          {isMentor && (
+            <MentorAnswerForm postId={post.id} session={session} onAnswered={onAnswered} />
+          )}
+        </>
       )}
     </div>
   )
@@ -106,7 +161,8 @@ function AskForm({ session, onPosted }) {
 }
 
 export default function QABoard() {
-  const { session, loading: authLoading } = useAuth()
+  const { session, profile, loading: authLoading } = useAuth()
+  const isMentor = (profile?.roles || (profile?.role ? [profile.role] : [])).includes('mentor')
 
   const [posts, setPosts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -132,6 +188,10 @@ export default function QABoard() {
 
   const handlePosted = (newPost) => {
     setPosts(prev => [newPost, ...prev])
+  }
+
+  const handleAnswered = (updatedPost) => {
+    setPosts(prev => prev.map(p => (p.id === updatedPost.id ? updatedPost : p)))
   }
 
   const handleStreamChange = (s) => {
@@ -205,7 +265,15 @@ export default function QABoard() {
           </div>
         ) : (
           <div className="space-y-4">
-            {posts.map(post => <PostCard key={post.id} post={post} />)}
+            {posts.map(post => (
+              <PostCard
+                key={post.id}
+                post={post}
+                isMentor={isMentor}
+                session={session}
+                onAnswered={handleAnswered}
+              />
+            ))}
           </div>
         )}
 

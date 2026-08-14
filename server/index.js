@@ -262,10 +262,6 @@ const getGroqClient = () => {
 // User-scoped Supabase client helper to respect Row Level Security (RLS)
 function getSupabaseClient(authHeader) {
   if (authHeader) {
-    const token = authHeader.split(' ')[1]
-    if (token === 'demo-student-token' || token === 'demo-admin-token') {
-      return supabaseAdmin || createClient(supabaseUrl, supabaseAnonKey)
-    }
     return createClient(supabaseUrl, supabaseAnonKey, {
       global: {
         headers: {
@@ -306,38 +302,23 @@ async function getAuthUser(authHeader) {
   }
   const token = authHeader.split(' ')[1]
 
-  // Developer/Demo bypass for local development or testing
-  if (token === 'demo-student-token') {
-    return {
-      id: '00000000-0000-0000-0000-000000000001',
-      email: 'demo-student@aagekya.com',
-      role: 'student',
-      user_metadata: { user_type: 'student' }
-    }
-  }
-  if (token === 'demo-admin-token') {
-    return {
-      id: '00000000-0000-0000-0000-000000000002',
-      email: 'demo-admin@aagekya.com',
-      role: 'admin',
-      user_metadata: { user_type: 'admin' }
-    }
-  }
-  if (token === 'demo-mentor-token') {
-    return {
-      id: '00000000-0000-0000-0000-000000000003',
-      email: 'demo-mentor@aagekya.com',
-      role: 'mentor',
-      user_metadata: { user_type: 'mentor' }
-    }
-  }
-
   try {
     const { data: { user }, error } = await supabase.auth.getUser(token)
     if (error || !user) return null
-    // Attach role from students profile (defaults 'student' if row doesn't exist yet)
+    // Attach role from students profile (defaults 'student' if row doesn't exist yet).
+    // BUG FIX: this must read using either the caller's own auth token (so
+    // the students_self_rw RLS policy — auth.uid() = id — actually allows
+    // the read) or the service-role client (bypasses RLS entirely). The
+    // previous code queried with the bare anon `supabase` client with no
+    // Authorization header at all, so RLS silently blocked EVERY role
+    // lookup and every user — including real admins and mentors — always
+    // fell back to 'student', no matter what their students.role actually
+    // was in the database. Prefer supabaseAdmin (most reliable); fall back
+    // to a user-scoped client using their own token if the service role key
+    // isn't configured.
     try {
-      const { data: profile } = await supabase
+      const roleClient = supabaseAdmin || getSupabaseClient(authHeader)
+      const { data: profile } = await roleClient
           .from('students')
           .select('role')
           .eq('id', user.id)
@@ -2075,15 +2056,6 @@ app.post('/api/mentors/book', requireAuth(), mentorBookLimiter, async (req, res)
     return res.status(400).json({ error: 'BAD_REQUEST', message: 'Please fill in all required fields.' })
   }
 
-  // Demo/dev accounts (loginAsDemo on the frontend) use fake UUIDs that have
-  // no matching auth.users row, so they can never satisfy the students
-  // foreign key. Simulate success instead of attempting a real DB write.
-  const authHeaderToken = (req.headers.authorization || '').split(' ')[1]
-  if (authHeaderToken === 'demo-student-token' || authHeaderToken === 'demo-admin-token' || authHeaderToken === 'demo-mentor-token') {
-    console.warn(`Mentor booking simulated for demo user ${user.email} — demo accounts are not persisted to the database`)
-    return res.json({ success: true, simulated: true })
-  }
-
   try {
     const client = getSupabaseClient(req.headers.authorization)
 
@@ -2190,13 +2162,6 @@ app.post('/api/mentors/ask', requireAuth(), mentorAskLimiter, async (req, res) =
     return res.status(400).json({ error: 'BAD_REQUEST', message: 'Please fill in all required fields.' })
   }
 
-  // Demo/dev accounts use fake UUIDs with no auth.users row — simulate success.
-  const askToken = (req.headers.authorization || '').split(' ')[1]
-  if (askToken === 'demo-student-token' || askToken === 'demo-admin-token' || askToken === 'demo-mentor-token') {
-    console.warn(`Mentor question simulated for demo user ${user.email} — demo accounts are not persisted`)
-    return res.json({ success: true, simulated: true })
-  }
-
   try {
     const client = getSupabaseClient(req.headers.authorization)
 
@@ -2295,17 +2260,14 @@ app.post('/api/mentors/ask', requireAuth(), mentorAskLimiter, async (req, res) =
 })
 
 // ── PATCH /api/mentor/messages/:id/reply — mentor answers a question ─────────
-app.patch('/api/mentor/messages/:id/reply', requireRole('mentor'), async (req, res) => {
+// Gated by requireAuth() (not requireRole('mentor')) because a single email
+// can hold both a student and mentor identity — the real authorization check
+// is "does this auth uid own a mentors row linked to this message", done below.
+app.patch('/api/mentor/messages/:id/reply', requireAuth(), async (req, res) => {
   const { id } = req.params
   const reply = (req.body?.reply || '').trim()
   const user = req.authUser
   if (!reply) return res.status(400).json({ error: 'BAD_REQUEST', message: 'Reply cannot be empty.' })
-
-  // Demo mentor — simulate a successful reply (no real rows to update).
-  const replyToken = (req.headers.authorization || '').split(' ')[1]
-  if (replyToken === 'demo-mentor-token') {
-    return res.json({ success: true, simulated: true, message: { id, reply, status: 'answered', replied_at: new Date().toISOString() } })
-  }
 
   try {
     // Verify the mentor owns the mentor profile the message is assigned to.
@@ -2368,32 +2330,6 @@ app.get('/api/mentor/messages', requireAuth(), async (req, res) => {
 // mentor profile by email on first visit.
 app.get('/api/mentor/workspace', requireAuth(), async (req, res) => {
   const user = req.authUser
-  const token = (req.headers.authorization || '').split(' ')[1]
-
-  // Demo mentor — return a friendly simulated workspace so the UI is explorable.
-  if (token === 'demo-mentor-token') {
-    const nowIso = new Date().toISOString()
-    return res.json({
-      application: { status: 'approved', created_at: nowIso },
-      mentor: {
-        id: 'demo-mentor', name: 'Demo Mentor', initials: 'DM',
-        college: 'IIT Bombay', degree: 'B.Tech CSE', stream_category: 'Science (PCM)',
-        available: true, story: 'Here to help students navigate their choices.', linkedin: '',
-        initials_bg: 'bg-indigo-500/20 text-indigo-300',
-      },
-      bookings: [],
-      messages: [
-        {
-          id: 'demo-msg-1', subject: 'Confused between PCM and PCB',
-          contact_name: 'Aarav Gupta', contact_email: 'aarav@example.com',
-          category: 'Stream / Subject Choice',
-          question: 'I enjoy biology but also like physics. How should I decide between PCM and PCB?',
-          status: 'pending', reply: '', created_at: nowIso,
-        },
-      ],
-    })
-  }
-
   const admin = supabaseAdmin || getSupabaseClient(req.headers.authorization)
   try {
     // 1. All applications filed under this account's email (an applicant may
@@ -2448,11 +2384,12 @@ app.get('/api/mentor/workspace', requireAuth(), async (req, res) => {
       }
     }
 
-    // 3. Once linked to a real profile, make sure their role is 'mentor' so the
-    //    reply endpoint (requireRole('mentor')) accepts them.
-    if (mentor) {
-      await admin.from('students').update({ role: 'mentor' }).eq('id', user.id)
-    }
+    // 3. NOTE: we deliberately do NOT overwrite students.role here. A single
+    //    email can hold both a student and mentor identity at once — role is
+    //    no longer treated as an exclusive single-value field for mentors.
+    //    Mentor authorization on every route below is based solely on
+    //    "does this auth uid own a mentors row" (mentor.user_id === user.id),
+    //    never on students.role.
 
     // 4. Received questions + booking requests for the linked mentor.
     let messages = []
@@ -2477,7 +2414,10 @@ app.get('/api/mentor/workspace', requireAuth(), async (req, res) => {
 // The mentor approves the request or declines it, optionally including a message
 // (e.g. the time they're actually available). The student is notified by email
 // and sees the status + message on their "My Mentor Requests" page.
-app.patch('/api/mentor/sessions/:id/respond', requireRole('mentor'), async (req, res) => {
+// Gated by requireAuth() (not requireRole('mentor')) — same reasoning as the
+// reply endpoint above: a single email can be both student and mentor, so
+// authorization is based on owning a mentors row, not on students.role.
+app.patch('/api/mentor/sessions/:id/respond', requireAuth(), async (req, res) => {
   const { id } = req.params
   const user = req.authUser
   const status = (req.body?.status || '').trim()        // 'accepted' | 'declined' | 'rescheduled' | 'completed'
@@ -2488,12 +2428,6 @@ app.patch('/api/mentor/sessions/:id/respond', requireRole('mentor'), async (req,
   }
   if (status === 'rescheduled' && !response) {
     return res.status(400).json({ error: 'BAD_REQUEST', message: 'Please suggest an alternative time in your message.' })
-  }
-
-  // Demo mentor — simulate success (no real rows to update).
-  const token = (req.headers.authorization || '').split(' ')[1]
-  if (token === 'demo-mentor-token') {
-    return res.json({ success: true, simulated: true, booking: { id, status, mentor_response: response } })
   }
 
   try {
@@ -2544,10 +2478,6 @@ app.patch('/api/mentor/sessions/:id/respond', requireRole('mentor'), async (req,
 // ── GET /api/student/bookings — a student's own booking requests + responses ──
 app.get('/api/student/bookings', requireAuth(), async (req, res) => {
   const user = req.authUser
-  const token = (req.headers.authorization || '').split(' ')[1]
-  if (token === 'demo-student-token' || token === 'demo-admin-token' || token === 'demo-mentor-token') {
-    return res.json({ bookings: [] })
-  }
   try {
     const client = getSupabaseClient(req.headers.authorization)
     const { data, error } = await client
@@ -2858,7 +2788,9 @@ app.patch('/api/mentor-sessions/:id/rate', requireAuth(), async (req, res) => {
 })
 
 // ── PATCH /api/mentor-sessions/:id/notes — mentor writes session notes ─────────
-app.patch('/api/mentor-sessions/:id/notes', requireRole('mentor'), async (req, res) => {
+// requireAuth(), not requireRole('mentor') — ownership is verified below via
+// the mentors table (auth uid may also be a student; roles are not exclusive).
+app.patch('/api/mentor-sessions/:id/notes', requireAuth(), async (req, res) => {
   const { id } = req.params
   const { notes, status } = req.body
   const user = req.authUser
@@ -2921,13 +2853,16 @@ app.post('/api/qa', requireAuth(), qaPostLimiter, async (req, res) => {
 })
 
 // ── PATCH /api/qa/:id/answer — mentor posts an answer ─────────────────────────
-app.patch('/api/qa/:id/answer', requireRole('mentor'), async (req, res) => {
+// requireAuth(), not requireRole('mentor') — ownership is verified below via
+// the mentors table (auth uid may also be a student; roles are not exclusive).
+app.patch('/api/qa/:id/answer', requireAuth(), async (req, res) => {
   const { id } = req.params
   const { answer } = req.body
   const user = req.authUser
   if (!answer || answer.trim().length < 5) return res.status(400).json({ error: 'BAD_REQUEST', message: 'Answer too short' })
   try {
     const { data: mentorRow } = await supabase.from('mentors').select('id').eq('user_id', user.id).maybeSingle()
+    if (!mentorRow) return res.status(403).json({ error: 'FORBIDDEN', message: 'No mentor profile found.' })
     const client = getSupabaseClient(req.headers.authorization)
     const { data, error } = await client
       .from('qa_posts')
@@ -3376,16 +3311,27 @@ app.post('/api/admin/mentor-applications/:id/approve', requireRole('admin'), asy
       email: app.email || null,      // link key: matches the mentor's login email
       tags: [app.degree || app.profession || 'Mentor', 'Approved'],
       available: true,
+      // Some deployments have a hardened schema where mentors_verified_public_read
+      // and the mentor_sessions RLS policies require verified_at IS NOT NULL. An
+      // admin approval IS the verification step, so stamp it here — if the
+      // column doesn't exist on this deployment's schema, the retry below drops it.
+      verified_at: new Date().toISOString(),
       ...chosenStyle
     }
 
     let { error: insertErr } = await client.from('mentors').insert(mentorRow)
-    // If the `email` column hasn't been migrated yet, retry without it so the
-    // approval still succeeds (run supabase_mentor_dashboard_migration.sql).
+    // If the `email` or `verified_at` column hasn't been migrated yet, retry
+    // without whichever one is missing so the approval still succeeds.
     if (insertErr && (insertErr.code === 'PGRST204' || insertErr.code === '42703' || /email/.test(insertErr.message || ''))) {
       console.warn('[mentor approve] mentors.email column missing — run supabase_mentor_dashboard_migration.sql. Inserting without email.')
       const { email, ...noEmail } = mentorRow
       const retry = await client.from('mentors').insert(noEmail)
+      insertErr = retry.error
+    }
+    if (insertErr && (insertErr.code === 'PGRST204' || insertErr.code === '42703' || /verified_at/.test(insertErr.message || ''))) {
+      console.warn('[mentor approve] mentors.verified_at column missing on this schema — inserting without it.')
+      const { verified_at, ...noVerified } = mentorRow
+      const retry = await client.from('mentors').insert(noVerified)
       insertErr = retry.error
     }
     if (insertErr && insertErr.code !== '23505') { // ignore duplicate name error
@@ -3408,8 +3354,11 @@ app.post('/api/admin/mentor-applications/:id/approve', requireRole('admin'), asy
         const { data: list } = await supabaseAdmin.auth.admin.listUsers()
         const acct = (list?.users || []).find(u => (u.email || '').toLowerCase() === app.email.toLowerCase())
         if (acct) {
+          // NOTE: we deliberately do NOT set students.role = 'mentor' here.
+          // The account may already be a student — linking mentors.user_id
+          // is sufficient for mentor access; students.role is left as-is so
+          // the account keeps both identities (see authRoleResolver.js).
           await supabaseAdmin.from('mentors').update({ user_id: acct.id }).eq('name', app.name)
-          await supabaseAdmin.from('students').update({ role: 'mentor' }).eq('id', acct.id)
         }
       } catch (linkErr) {
         console.warn('[mentor approve] account auto-link skipped:', linkErr.message)

@@ -8,7 +8,7 @@ import XaiTooltip from './XaiTooltip'
  *
  * series: [{ name, color, points: [{x, y}] }]
  */
-export default function LineChart({ title, explain, series, xLabel, yLabel, height = 220, valueFormatter = (v) => v }) {
+export default function LineChart({ title, explain, series, xLabel, yLabel, height = 220, valueFormatter = (v) => v, xLabelFormatter = (x) => x }) {
   const [hover, setHover] = useState(null) // { seriesIdx, pointIdx }
   const width = 520
   const padding = { top: 16, right: 16, bottom: 32, left: 44 }
@@ -51,7 +51,7 @@ export default function LineChart({ title, explain, series, xLabel, yLabel, heig
         ))}
         {/* X axis labels */}
         {series[0]?.points.map((p, i) => (
-          <text key={i} x={px(p.x)} y={height - 10} textAnchor="middle" fontSize="9" fill="#6b7280">{p.x}{xLabel ? '' : ''}</text>
+          <text key={i} x={px(p.x)} y={height - 10} textAnchor="middle" fontSize="9" fill="#6b7280">{xLabelFormatter(p.x)}</text>
         ))}
 
         {/* Lines + points */}
@@ -86,7 +86,7 @@ export default function LineChart({ title, explain, series, xLabel, yLabel, heig
             <g>
               <rect x={tx - 42} y={py(p.y) - 38} width="84" height="26" rx="6" fill="#0D1117" stroke={s.color} strokeWidth="1" />
               <text x={tx} y={py(p.y) - 21} textAnchor="middle" fontSize="10" fill="#fff" fontWeight="bold">
-                {xLabel ? `${xLabel} ${p.x}: ` : ''}{valueFormatter(p.y)}
+                {xLabel ? `${xLabel} ${xLabelFormatter(p.x)}: ` : ''}{valueFormatter(p.y)}
               </text>
             </g>
           )

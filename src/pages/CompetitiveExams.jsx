@@ -66,6 +66,24 @@ const COUNSELLING_DATA = {
       { rankRange: '10001–30000', branches: ['CS at tier-2 private colleges', 'EC/ME at mid-tier', 'CS at colleges outside Bangalore'], type: 'Good' },
     ]
   },
+  // BUG FIX: 'state_cet' is listed in EXAMS above (id: 'state_cet', name:
+  // 'State CETs') but had no matching entry here at all — selecting it made
+  // examData resolve to undefined, so "Your Best Options", the Interactive
+  // Counselling Simulator, and "Complete Rank-wise College Map" all had
+  // nothing to render, no matter what rank was entered. This covers the
+  // major state engineering CETs (MHT-CET, AP/TS EAMCET, WBJEE, KEAM,
+  // UPCET, etc.) with indicative, state-agnostic tier bands, consistent
+  // with how KCET/COMEDK are modelled above.
+  state_cet: {
+    ranges: [
+      { rankRange: '1–1000', branches: ['CS at top state government colleges (e.g. COEP, VJTI, Jadavpur)', 'EC at top state colleges', 'CS at top-tier private colleges'], type: 'Top Tier' },
+      { rankRange: '1001–5000', branches: ['CS at leading state private colleges', 'IT at top government colleges', 'EC/ME at top-tier colleges'], type: 'Excellent' },
+      { rankRange: '5001–15000', branches: ['CS at well-known private colleges', 'Civil/ME at government colleges', 'EC at mid-tier private colleges'], type: 'Very Good' },
+      { rankRange: '15001–30000', branches: ['CS at mid-tier private colleges', 'EC/ME at regional colleges', 'IT at private colleges'], type: 'Good' },
+      { rankRange: '30001–45000', branches: ['Any branch at tier-2 private colleges', 'Non-circuit branches at mid-tier colleges'], type: 'Average' },
+      { rankRange: '45001–50000', branches: ['Any branch at tier-3 colleges', 'Consider lateral entry via diploma', 'Management quota seats'], type: 'Low' },
+    ]
+  },
   cuet: {
     ranges: [
       { rankRange: 'Top 1%', branches: ['BA Hons at Delhi University (SRCC, LSR, Hindu)', 'BA at JNU', 'BHU top courses'], type: 'Top Tier' },
